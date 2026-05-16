@@ -1,4 +1,4 @@
-import { CokiDatabase } from "./db/database";
+import { CokiDatabase, type RunRow } from "./db/database";
 import { ConfigManager, type CokiConfig, type ConfigOverrides } from "./config/config";
 import { LLMClient } from "./llm/client";
 import { TavilySearchProvider } from "./search/tavily";
@@ -147,15 +147,15 @@ export class ResearchEngine {
     }
   }
 
-  getHistory() {
+  getHistory(): RunRow[] {
     return this.db.listRuns();
   }
 
-  getRun(id: string) {
+  getRun(id: string): RunRow | null {
     return this.db.getRun(id);
   }
 
-  deleteRun(id: string) {
+  deleteRun(id: string): void {
     this.db.deleteRun(id);
   }
 }
