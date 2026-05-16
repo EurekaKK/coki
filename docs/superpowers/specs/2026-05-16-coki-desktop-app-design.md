@@ -6,28 +6,29 @@ Coki is a complete TypeScript rewrite of [Deep-Research-Agent](/Users/eureka/cod
 
 **Key decisions:**
 - Full TypeScript rewrite (no Python dependency)
-- Electron + React + shadcn/ui + Tailwind CSS
-- Custom state-machine pipeline + Vercel AI SDK for LLM interactions
-- Tavily as the sole search provider (first version)
+- Electron 42 + React 19 + shadcn/ui + Tailwind CSS
+- Custom state-machine pipeline + Vercel AI SDK 6 for LLM interactions
+- Tavily as the sole search provider (Search + Extract APIs)
 - vectra (TS-native) for vector + BM25 hybrid search in document RAG
 - pino for structured logging, AsyncLocalStorage for trace context
-- Evidence-span based citation system (not regex-only)
+- Evidence-span based citation system with claims and references
+- API keys encrypted via Electron safeStorage
+- Document import via main-process dialog (no arbitrary path from renderer)
 
 ---
 
 ## 0. Version Matrix
 
-All versions locked to avoid ABI / API mismatches.
-
-| Component | Version | Constraint |
-|-----------|---------|------------|
-| Electron | 41+ (recommend 42) | Node 24.x runtime |
-| Node.js (runtime) | >=22.19.0 or 24.x | Required by vectra 0.14+ |
-| vectra | 0.14.x | Node >=22.19.0 minimum |
-| ai (Vercel AI SDK) | 5.x or 6.x | Uses `stopWhen` / `stepCountIs`, NOT `maxSteps` |
-| better-sqlite3 | latest | Must rebuild via `@electron/rebuild` per Electron ABI |
-| React | 18 or 19 | Lock to template compatibility; default to 19 if shadcn/ui supports it |
-| pnpm | 9+ | Workspace protocol |
+| Component | Locked Version | Notes |
+|-----------|---------------|-------|
+| Electron | **42.x** | Node 24.15.0 runtime |
+| Node.js (runtime) | **24.x** | Bundled with Electron 42 |
+| vectra | **0.14.x** | Requires Node >=22.19.0 |
+| ai (Vercel AI SDK) | **6.x** | `stopWhen`, `stepCountIs`, `Output.object()` |
+| @ai-sdk/* | **3.x** | Provider packages |
+| React | **19.x** | |
+| better-sqlite3 | **12.x** | Must rebuild via `@electron/rebuild` |
+| pnpm | **9.x** | Workspace protocol |
 
 ---
 
@@ -40,12 +41,13 @@ coki/
 │   │   ├── src/
 │   │   │   ├── index.ts         # App entry, BrowserWindow creation
 │   │   │   ├── ipc.ts           # IPC handlers (research, config, documents)
+│   │   │   ├── security.ts      # CSP, permission handlers, safeStorage
 │   │   │   ├── tray.ts          # System tray
 │   │   │   └── updater.ts       # Auto-update
 │   │   └── package.json
-│   ├── preload/                 # Electron preload script
+│   ├── preload/                 # Electron preload script (thin, esbuild single-file)
 │   │   ├── src/
-│   │   │   └── index.ts         # contextBridge: exposes safe API to renderer
+│   │   │   └── index.ts         # contextBridge only: exposeInMainWorld("coki", api)
 │   │   └── package.json
 │   └── renderer/                # React frontend
 │       ├── src/
@@ -56,6 +58,7 @@ coki/
 │       │   ├── hooks/           # useResearch, useStream, etc.
 │       │   ├── stores/          # Zustand stores
 │       │   └── lib/             # Utilities
+│       ├── index.html           # Includes CSP meta tag
 │       └── package.json
 ├── packages/
 │   ├── engine/                  # Research engine (pure logic, no Electron dependency)
@@ -66,7 +69,7 @@ coki/
 │   │   │   ├── rag/             # Document RAG (vectra vector + BM25)
 │   │   │   ├── citation/        # Evidence/Citation subsystem
 │   │   │   ├── extraction/      # Content extraction fallback (readability)
-│   │   │   ├── llm/             # LLM client wrapper (Vercel AI SDK)
+│   │   │   ├── llm/             # LLM client wrapper (AI SDK 6)
 │   │   │   ├── db/              # SQLite persistence
 │   │   │   ├── config/          # Configuration management
 │   │   │   ├── tracing/         # Observability (pino + AsyncLocalStorage)
@@ -87,14 +90,14 @@ coki/
 **Key constraints:**
 - `packages/engine` has zero Electron dependencies — can run and be tested independently in Node.js
 - `apps/main` imports `packages/engine` and wires it to IPC
-- `apps/preload` only exposes typed APIs via `contextBridge`
+- `apps/preload` is extremely thin: only `contextBridge.exposeInMainWorld`. No file I/O, no DB access, no complex logic. Built by esbuild into a single file for sandbox compatibility.
 - `packages/shared` ensures type consistency between main and renderer
 
 ---
 
 ## 2. Core Architecture — Pipeline State Machine
 
-### 2.1 Explicit state machine (not array of nodes)
+### 2.1 Explicit state machine
 
 ```typescript
 // packages/engine/src/pipeline/pipeline.ts
@@ -121,19 +124,22 @@ class Pipeline {
 
 - `Pipeline.run()` returns an `AsyncGenerator` yielding progress events
 - Main process forwards events to renderer via IPC
-- Each node is a plain async function: receive context, return updated context
 - Transitions are explicit: reflection → subagents (if gaps), reflection → synthesize (if no gaps), etc.
-- This makes cancellation, resume, debug timeline, and failure retry straightforward
+- Cancellation, resume, debug timeline, and failure retry all operate on node boundaries
 
 ### 2.2 Seven-node mapping
+
+All LLM calls use AI SDK 6. Structured output via `generateText({ output: Output.object({ schema }) })`, NOT the deprecated `generateObject`. Tool loops via `stopWhen: stepCountIs(N)`.
+
+When combining tools with structured output, structured output itself consumes one step — reserve one extra step.
 
 | Node | Implementation | LLM Usage |
 |------|---------------|-----------|
 | **init** | Pure function, no LLM | None |
-| **plan** | `generateObject({ schema: ResearchPlanSchema })` | Structured output; depth 2-3 use `stopWhen: stepCountIs(N)` + search tool |
-| **split** | `generateObject({ schema: SubtaskListSchema })` | Structured output with JSON self-healing retry |
+| **plan** | `generateText({ output: Output.object({ schema }) })` | Structured output; depth 2-3 use `stopWhen: stepCountIs(N+1)` + search tool |
+| **split** | `generateText({ output: Output.object({ schema }) })` | Structured output with JSON self-healing retry |
 | **subagents** | Bounded concurrent execution (see 2.4) | Each subagent runs independent ReAct loop |
-| **reflection** | `generateObject({ schema: ReflectionSchema })` | Structured scoring + gap detection |
+| **reflection** | `generateText({ output: Output.object({ schema }) })` | Structured scoring + gap detection |
 | **synthesize** | `streamText({ prompt })` | Streaming synthesis, truncation continuation up to 6 rounds |
 | **cite** | Evidence/Citation subsystem (see §3) | Maps evidence spans to numbered references |
 
@@ -147,23 +153,22 @@ async function runSubagent(
   config: AgentConfig,
   signal: AbortSignal
 ): Promise<SubagentReport> {
-  const result = await generateText({
+  const { text, toolResults } = await generateText({
     model: config.model,
     system: SUBAGENT_SYSTEM_PROMPT,
     messages: [{ role: 'user', content: subtask.instruction }],
     tools,
-    // AI SDK 5/6: multi-step tool use via stopWhen
-    stopWhen: stepCountIs(config.maxSteps),
+    stopWhen: stepCountIs(config.maxSteps + 1),  // +1 for final structured output step
     abortSignal: signal,
     onStepFinish: ({ toolCalls, toolResults }) => {
       // Emit progress events, guard rail checks
     }
   });
-  return extractReport(result);
+  return extractReport(text, toolResults);
 }
 ```
 
-AI SDK 5/6 uses `stopWhen` + `stepCountIs` instead of the deprecated `maxSteps`. This lets the LLM autonomously decide when to stop searching and submit a report. Guard rails from the original (search round limits, consecutive failure detection, forced search disable in writing phase) are implemented via `onStepFinish` callbacks.
+Guard rails from the original (search round limits, consecutive failure detection, forced search disable in writing phase) are implemented via `onStepFinish` callbacks.
 
 ### 2.4 Bounded concurrency for subagents
 
@@ -183,7 +188,7 @@ async function runSubagentsParallel(
 ): Promise<SubagentReport[]> {
   const limit = pLimit(CONCURRENCY[config.depth]);
   return Promise.all(
-    subtasks.map((task, i) =>
+    subtasks.map((task) =>
       limit(() => runSubagent(task, tools, {
         ...config,
         timeoutMs: config.timeoutMs,
@@ -201,17 +206,19 @@ Each subagent has per-run budgets: `timeoutMs`, `maxSearchCalls`, `maxFetchCalls
 
 ---
 
-## 3. Citation System — Evidence Spans
-
-The `cite` node is upgraded from regex replacement to an evidence/citation subsystem.
+## 3. Citation System — Evidence Spans + Claims
 
 ### 3.1 Data model
 
 ```typescript
 interface SourceRecord {
-  id: string;
-  url: string;
-  canonicalUrl: string;
+  id: string;            // TEXT UUID
+  runId: string;
+  sourceType: "web" | "document";
+  url?: string;          // web sources only
+  documentId?: string;   // document sources only
+  chunkId?: string;      // document sources only
+  canonicalUrl?: string;
   title?: string;
   retrievedAt: string;
   contentHash: string;
@@ -219,18 +226,26 @@ interface SourceRecord {
 }
 
 interface EvidenceSpan {
-  sourceId: string;
+  id: string;            // TEXT UUID
+  runId: string;
+  sourceId: string;      // → sources.id
   quote: string;
   startOffset?: number;
   endOffset?: number;
-  usedByClaimId?: string;
 }
 
 interface Claim {
-  id: string;
+  id: string;            // TEXT UUID
+  runId: string;
   text: string;
-  evidenceIds: string[];
   confidence: "high" | "medium" | "low";
+}
+
+interface ReportReference {
+  runId: string;
+  sourceId: string;      // → sources.id
+  referenceNumber: number;
+  citedText?: string;
 }
 ```
 
@@ -238,7 +253,11 @@ interface Claim {
 
 1. **During subagent research**: each subagent produces evidence spans linked to source records
 2. **During synthesis**: the synthesizer outputs a draft with evidence IDs inline, e.g. `市场规模在2024年继续增长。[E12][E15]`
-3. **During cite**: the cite node maps `[E12]` → `[^1]` numbered references, verifies URL liveness, deduplicates, and strips orphan references
+3. **During cite**:
+   - Map `[E12]` → source → `[^1]` numbered references
+   - Verify URL liveness
+   - Deduplicate and strip orphan references
+   - Write `report_references` table
 
 This is significantly more reliable than regex-replacing `[src: url]` patterns.
 
@@ -258,9 +277,9 @@ Two tools for subagents, both using Tavily:
 If Tavily Extract fails (rate limit, blocked, etc.):
 
 1. **Primary fallback**: `@mozilla/readability` + `jsdom` (~200ms, static HTML)
-2. **Optional advanced fallback**: `playwright` headless browser (not bundled by default, opt-in for JS-rendered pages)
+2. **Optional advanced fallback**: `playwright` headless browser (not bundled by default, opt-in)
 
-Playwright is NOT included in the default build. It increases package size and startup time significantly. Users can enable it in settings if they need JS-rendered page extraction.
+Playwright is NOT included in the default build. Users can enable it in settings if needed.
 
 ### 4.3 Implementation
 
@@ -272,7 +291,7 @@ interface SearchProvider {
 }
 ```
 
-Configuration: user enters Tavily API key in Settings. Stored in SQLite `config` table.
+Tavily API key stored encrypted in SQLite (see §6.5).
 
 ---
 
@@ -280,23 +299,35 @@ Configuration: user enters Tavily API key in Settings. Stored in SQLite `config`
 
 ### 5.1 Vector Store + Hybrid Search
 
-Use **vectra** (v0.14.x) — a TS-native vector database with built-in BM25 hybrid search (via `wink-bm25-text-search`). File-based local storage, supports Pinecone-compatible filtering.
-
-vectra handles:
-- Vector similarity search
-- BM25 keyword search
-- Hybrid ranking (configurable vector/BM25 weight via `hybrid_alpha`)
+Use **vectra** (v0.14.x) — TS-native vector database with built-in BM25 hybrid search (via `wink-bm25-text-search`). File-based local storage.
 
 ### 5.2 Embedding Models
 
-User selects in settings:
+```yaml
+embedding:
+  online:
+    provider: zhipu
+    model: embedding-3
+    dimensions: 512  # must be explicitly requested; default may be 2048
+  local:
+    model: bge-small-zh-v1.5
+    dimensions: 512
+```
 
-- **Online**: Zhipu Embedding-3, dimension 512
-- **Local**: `bge-small-zh-v1.5` ONNX, dimension 512
+Both use 512-dimension vectors. Online and local are separate indexes (different embedding spaces). Rebuild index when switching models.
 
-Both use 512-dimension vectors. Online and local are still separate indexes (different embedding spaces), but same dimension simplifies validation. Rebuild index when switching models.
+### 5.3 Chinese tokenization
 
-### 5.3 RAG Configuration
+vectra's built-in BM25 uses `wink-bm25-text-search` which has limited CJK support. Configure a tokenizer:
+
+```yaml
+rag:
+  tokenizer:
+    zh: "jieba-wasm"          # Chinese segmentation
+    fallback: "unicode-word-boundary"  # Latin scripts
+```
+
+### 5.4 RAG Configuration
 
 ```yaml
 rag:
@@ -305,29 +336,42 @@ rag:
   chunk_overlap: 100
   hybrid_alpha: 0.5            # 0 = pure BM25, 1 = pure vector
   top_k: 10
+  tokenizer:
+    zh: "jieba-wasm"
+    fallback: "unicode-word-boundary"
 ```
 
-### 5.4 Document Processing
+### 5.5 Document Processing
 
 Supports three formats (first version):
 
 - **TXT**: Direct read
-- **Markdown**: `marked` parse → extract plain text (preserve structure markers)
-- **PDF**: `pdf-parse` (based on pdfjs-dist, pure JS, no native dependencies)
+- **Markdown**: `marked` parse → extract plain text
+- **PDF**: `pdf-parse` (text extraction only)
+
+**First version limitations**: PDF first version extracts text only. Tables, scanned PDFs, images, formulas are not guaranteed. OCR is out of scope for MVP.
 
 Pipeline: upload → parse → chunk (800 chars, 100 overlap) → embed → index
 
-Document indexing runs in a **Worker Thread** to avoid blocking the main process.
+Document indexing runs in a **Worker Thread** with an **IndexingQueue**:
+- Same collection: serial (one indexer at a time)
+- Different collections: can run in parallel
+- Each Worker opens its own DB connection (no shared connection with main)
+
+```typescript
+class IndexingQueue {
+  enqueue(collectionId: string, job: IndexJob): Promise<void>;
+  // Per-collection serialization; cross-collection parallelism
+}
+```
 
 ---
 
 ## 6. Persistence
 
-Using **better-sqlite3** (synchronous, high-performance SQLite binding, standard for Electron main process).
+Using **better-sqlite3** (synchronous, high-performance SQLite binding).
 
 ### 6.1 Native module rebuild
-
-better-sqlite3 is a native module. Must rebuild for Electron's ABI:
 
 ```json
 {
@@ -337,14 +381,12 @@ better-sqlite3 is a native module. Must rebuild for Electron's ABI:
 }
 ```
 
-Or configure in `electron-builder.yml` / Electron Forge to rebuild automatically during packaging.
+Or configure in `electron-builder.yml` to rebuild automatically during packaging.
 
 ### 6.2 Performance considerations
 
-better-sqlite3 is synchronous. To avoid blocking the main process event loop:
-
 - **Trace logs**: batched flush (buffer writes, flush every 500ms or 100 entries)
-- **Document indexing**: runs in Worker Thread
+- **Document indexing**: runs in Worker Thread (own DB connection)
 - **Bulk inserts** (chunks, sources): use transactions (`db.transaction(...)`)
 - **Main process**: only does IPC orchestration; heavy work goes to engine workers
 
@@ -353,7 +395,24 @@ better-sqlite3 is synchronous. To avoid blocking the main process event loop:
 `app.getPath('userData')` + `/data.db`
 - macOS: `~/Library/Application Support/coki/data.db`
 
-### 6.4 Schema
+### 6.4 API key encryption
+
+API keys are encrypted using Electron `safeStorage.encryptString()` before being stored in SQLite.
+
+```typescript
+import { safeStorage } from 'electron';
+
+// Encrypt before storing
+const encrypted = await safeStorage.encryptString(apiKey);
+// encrypted is a Buffer → store as BLOB
+
+// Decrypt when reading
+const decrypted = await safeStorage.decryptString(encryptedBuffer);
+```
+
+Settings page shows only "configured" / "not configured" — never echoes full API keys.
+
+### 6.5 Schema
 
 ```sql
 -- 1. Research runs
@@ -382,18 +441,59 @@ CREATE TABLE subtask_reports (
 
 -- 3. Sources
 CREATE TABLE sources (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id TEXT PRIMARY KEY,
   run_id TEXT NOT NULL REFERENCES runs(id),
-  url TEXT NOT NULL,
+  source_type TEXT NOT NULL,      -- 'web' | 'document'
+  url TEXT,                       -- web sources
+  document_id TEXT REFERENCES documents(id),  -- document sources
+  chunk_id TEXT,                  -- document sources
   canonical_url TEXT,
   title TEXT,
   snippet TEXT,
   content_hash TEXT,
-  fetch_status TEXT DEFAULT 'ok',   -- ok/failed/stale
+  fetch_status TEXT DEFAULT 'ok', -- ok/failed/stale
+  retrieved_at TEXT NOT NULL,
   cited_in_report INTEGER DEFAULT 0
 );
 
--- 4. Document collections
+-- 4. Evidence spans
+CREATE TABLE evidence_spans (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL REFERENCES runs(id),
+  source_id TEXT NOT NULL REFERENCES sources(id),
+  quote TEXT NOT NULL,
+  start_offset INTEGER,
+  end_offset INTEGER,
+  created_at TEXT NOT NULL
+);
+
+-- 5. Claims
+CREATE TABLE claims (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL REFERENCES runs(id),
+  text TEXT NOT NULL,
+  confidence TEXT NOT NULL,       -- high/medium/low
+  created_at TEXT NOT NULL
+);
+
+-- 6. Claim ↔ Evidence mapping
+CREATE TABLE claim_evidence (
+  claim_id TEXT NOT NULL REFERENCES claims(id),
+  evidence_id TEXT NOT NULL REFERENCES evidence_spans(id),
+  PRIMARY KEY (claim_id, evidence_id)
+);
+
+-- 7. Report references (final numbered citations in the report)
+CREATE TABLE report_references (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_id TEXT NOT NULL REFERENCES runs(id),
+  source_id TEXT NOT NULL REFERENCES sources(id),
+  reference_number INTEGER NOT NULL,
+  cited_text TEXT,
+  UNIQUE(run_id, reference_number)
+);
+
+-- 8. Document collections
 CREATE TABLE collections (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
@@ -407,12 +507,12 @@ CREATE TABLE collections (
   created_at TEXT NOT NULL
 );
 
--- 5. Documents
+-- 9. Documents
 CREATE TABLE documents (
   id TEXT PRIMARY KEY,
   collection_id TEXT NOT NULL REFERENCES collections(id),
   filename TEXT NOT NULL,
-  file_path TEXT NOT NULL,
+  file_path TEXT NOT NULL,         -- app-managed copy under userData
   content_hash TEXT,
   parser_version TEXT,
   chunk_count INTEGER,
@@ -422,19 +522,15 @@ CREATE TABLE documents (
   created_at TEXT NOT NULL
 );
 
--- 6. Evidence spans (citation system)
-CREATE TABLE evidence_spans (
-  id TEXT PRIMARY KEY,
-  run_id TEXT NOT NULL REFERENCES runs(id),
-  source_id INTEGER REFERENCES sources(id),
-  quote TEXT NOT NULL,
-  start_offset INTEGER,
-  end_offset INTEGER,
-  used_by_claim_id TEXT,
-  created_at TEXT NOT NULL
+-- 10. Config (encrypted API keys)
+CREATE TABLE config (
+  key TEXT PRIMARY KEY,
+  encrypted_value BLOB,           -- safeStorage encrypted; NULL for non-secret values
+  plain_value TEXT,               -- for non-secret config (log level, UI prefs, etc.)
+  updated_at TEXT NOT NULL
 );
 
--- 7. Trace logs
+-- 11. Trace logs
 CREATE TABLE trace_logs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   run_id TEXT REFERENCES runs(id),
@@ -446,11 +542,11 @@ CREATE TABLE trace_logs (
   created_at TEXT NOT NULL
 );
 
--- 8. LLM call records
+-- 12. LLM call records
 CREATE TABLE llm_calls (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   run_id TEXT REFERENCES runs(id),
-  role TEXT,                      -- planner/subagent/synthesizer etc.
+  role TEXT,
   model TEXT,
   input_tokens INTEGER,
   output_tokens INTEGER,
@@ -465,10 +561,9 @@ CREATE TABLE llm_calls (
 
 ### 7.1 Logging
 
-Using **pino** (high-performance structured JSON logger) + **AsyncLocalStorage** for trace context propagation.
+Using **pino** + **AsyncLocalStorage** for trace context propagation.
 
 ```typescript
-// packages/engine/src/tracing/logger.ts
 import pino from 'pino';
 import { AsyncLocalStorage } from 'node:async_hooks';
 
@@ -480,13 +575,24 @@ function trace(phase: string, eventType: string, message: string, details?: obje
 }
 ```
 
-- `AsyncLocalStorage` replaces Python's `contextvars` — implicitly propagates `run_id`
-- Logs batched-flushed to SQLite (`trace_logs` table) — not per-write synchronous
-- Renderer receives real-time log events via IPC for timeline visualization
+- Logs batched-flushed to SQLite (not per-write synchronous)
+- Renderer receives real-time log events via IPC
 
-### 7.2 LLM Call Tracking
+### 7.2 IPC event buffering
 
-Every `generateText` / `streamText` / `generateObject` call records: role, model, token counts (input/output), latency.
+**Problem**: If renderer calls `start()` then registers `on.researchProgress`, early events may be lost.
+
+**Solution**: Main buffers events per runId. `getTimeline(runId)` returns full history. `researchProgress` only handles real-time incremental events after subscription.
+
+```typescript
+// Renderer usage pattern:
+const timeline = await window.coki.research.getTimeline(runId);  // full history
+const unsubscribe = window.coki.on.researchProgress((event) => { /* incremental */ });
+```
+
+### 7.3 LLM Call Tracking
+
+Every AI SDK call records: role, model, token counts (input/output), latency.
 
 ---
 
@@ -523,13 +629,13 @@ Every `generateText` / `streamText` / `generateObject` call records: role, model
 
 **Research Dashboard (running)**
 - Progress bar + current phase text + estimated time remaining
-- **Cost/token panel**: total tokens used, estimated cost, per-subagent LLM call count, search call count
+- **Cost/token panel**: total tokens used, estimated cost, per-subagent LLM call count, search call count, cited vs found sources count
 - Real-time log stream (collapsible)
 - Subtask card grid: each card shows instruction, status, live output preview
 
 **Report (completed)**
 - Left: Full report (Markdown rendered, citations clickable)
-- Right: Sources panel (collapsible), showing all cited sources with "cited" vs "found but not cited" distinction
+- Right: Sources panel (collapsible), showing all sources with "cited" vs "found but not cited" distinction
 - Toolbar: Export (Markdown), copy, re-research (see below)
 
 **History**
@@ -543,22 +649,24 @@ Every `generateText` / `streamText` / `generateObject` call records: role, model
 
 **Library**
 - Left: Collection list
-- Right: Document list for selected collection + upload area
-- Drag-and-drop upload (TXT, MD, PDF)
+- Right: Document list for selected collection + upload button
+- Upload triggers main-process `dialog.showOpenDialog` (renderer never passes file paths)
+- Formats: TXT, MD, PDF only
 
 **Settings**
-- Sectioned form: LLM config, Tavily API key, embedding model, RAG parameters, UI preferences
+- Sectioned form: LLM config (base_url, model, encrypted API key), Tavily API key (encrypted), embedding model, RAG parameters, UI preferences
+- API key fields show "configured" / "not configured", never echo the key
 
 ### 8.3 Tech Stack
 
 | Component | Choice | Reason |
 |-----------|--------|--------|
 | UI library | **shadcn/ui** | Customizable, zero runtime, TS-native |
-| CSS | **Tailwind CSS** | Pairs with shadcn/ui, high dev velocity |
-| State | **Zustand** | Lightweight, TS-friendly, supports subscriptions |
+| CSS | **Tailwind CSS** | Pairs with shadcn/ui |
+| State | **Zustand** | Lightweight, TS-friendly |
 | Routing | **React Router** | SPA routing for desktop |
 | Markdown | **react-markdown** + **remark-gfm** | React-native, GFM support |
-| Icons | **Lucide React** | shadcn/ui default icon set |
+| Icons | **Lucide React** | shadcn/ui default |
 
 ---
 
@@ -574,19 +682,21 @@ Every `generateText` / `streamText` / `generateObject` call records: role, model
 │  - SQLite        │              │  - Zustand Store  │
 │  - Pipeline      │              │  - UI Components  │
 │  - Search/RAG    │              │                   │
+│  - safeStorage   │              │                   │
+│  - dialog        │              │                   │
 └──────────────────┘              └──────────────────┘
         │
         ▼
 ┌──────────────────┐
-│  Preload Script   │
+│  Preload (thin)   │
 │  contextBridge    │
+│  esbuild single   │
 └──────────────────┘
 ```
 
 ### 9.2 IPC API
 
 ```typescript
-// packages/shared/src/events.ts
 interface CokiAPI {
   research: {
     start(query: string, options: ResearchOptions): Promise<string>;  // returns runId
@@ -597,10 +707,12 @@ interface CokiAPI {
   };
 
   documents: {
+    importFiles(collectionId: string): Promise<Document[]>;  // main shows dialog
+    deleteDocument(documentId: string): Promise<void>;
+    reindexDocument(documentId: string): Promise<void>;
     getCollections(): Promise<Collection[]>;
     createCollection(name: string, desc?: string): Promise<Collection>;
     deleteCollection(id: string): Promise<void>;
-    uploadDocument(collectionId: string, filePath: string): Promise<void>;
     search(collectionIds: string[], query: string): Promise<ChunkResult[]>;
   };
 
@@ -618,10 +730,12 @@ interface CokiAPI {
 }
 ```
 
+**Document import security**: Renderer calls `importFiles(collectionId)`. Main process opens `dialog.showOpenDialog` with extension filter (`*.txt, *.md, *.pdf`). Files are copied to `app.getPath("userData")/documents/{collectionId}/{docId}/original.ext`. All subsequent indexing, parsing, and display operate on the app-managed copy. Renderer never specifies an absolute file path.
+
 ### 9.3 Security
 
 ```typescript
-// apps/main/src/index.ts
+// apps/main/src/security.ts
 const mainWindow = new BrowserWindow({
   webPreferences: {
     preload,
@@ -633,18 +747,42 @@ const mainWindow = new BrowserWindow({
   },
 });
 
-// Block new windows and navigation
-mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-mainWindow.webContents.on("will-navigate", (event, url) => {
-  // Only allow app's own origin
+// Block all permission requests (camera, microphone, geolocation, etc.)
+session.defaultSession.setPermissionRequestHandler((_wc, _permission, callback) => {
+  callback(false);
 });
 
-// External links: shell.openExternal with protocol validation (https: only)
+// External links: open in system browser, https: only
+mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+  const parsed = new URL(url);
+  if (parsed.protocol === "https:") {
+    shell.openExternal(url);
+  }
+  return { action: "deny" };
+});
+
+// Block navigation to external URLs
+mainWindow.webContents.on("will-navigate", (event, url) => {
+  // Only allow app's own origin (file:// or dev server)
+  event.preventDefault();
+});
 ```
 
-- Preload exposes `window.coki` via `contextBridge.exposeInMainWorld`
-- No direct `ipcRenderer.invoke` exposed to renderer
-- All IPC communication is type-constrained (types from `packages/shared`)
+**CSP** (in renderer `index.html`):
+
+```html
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'self';
+  script-src 'self';
+  style-src 'self' 'unsafe-inline';
+  img-src 'self' data: https:;
+  connect-src 'self';
+  object-src 'none';
+  base-uri 'none';
+">
+```
+
+**Preload constraints**: Preload is built by esbuild into a single file. It contains only `contextBridge.exposeInMainWorld("coki", api)`. No file I/O, no DB access, no complex logic.
 
 ### 9.4 Cancellation propagation
 
@@ -655,12 +793,11 @@ mainWindow.webContents.on("will-navigate", (event, url) => {
 - Embedding batches
 - Document indexing queue
 
-Terminal events: `research.cancelled`, `research.failed`, `research.completed` — renderer does not rely on Promise rejection alone.
+Terminal events: `research.cancelled`, `research.failed`, `research.completed`.
 
 ### 9.5 Main process entry
 
 ```typescript
-// apps/main/src/index.ts
 app.whenReady().then(() => {
   const db = new CokiDatabase(getDataPath());
   const engine = new ResearchEngine(db, config);
@@ -673,54 +810,64 @@ app.whenReady().then(() => {
 
 ## 10. Key Libraries Summary
 
-| Purpose | Library | Notes |
-|---------|---------|-------|
-| Desktop framework | Electron 41+ | Main process runs engine |
-| Frontend framework | React 18/19 | Lock to template compatibility |
-| UI components | shadcn/ui | Customizable, TS-native |
-| CSS | Tailwind CSS | Utility-first |
-| State management | Zustand | Lightweight |
-| LLM interaction | Vercel AI SDK 5/6 (`ai`) | `generateText`, `streamText`, `generateObject`, `stopWhen` |
-| SQLite | better-sqlite3 | Native, requires `@electron/rebuild` |
-| Vector store + BM25 | vectra 0.14.x | Pure TS, built-in hybrid search |
-| Search | Tavily SDK | Search + Extract APIs |
-| Content extraction | @mozilla/readability + jsdom | Fallback when Tavily Extract fails |
-| PDF parsing | pdf-parse | Pure JS |
-| Concurrency | p-limit | Bounded subagent parallelism |
-| Logging | pino | Structured JSON logs |
-| Trace context | AsyncLocalStorage | Implicit run_id propagation |
-| Markdown rendering | react-markdown | React component |
-| Build | Vite (renderer) + esbuild (main/preload) | Fast builds |
-| Packaging | electron-builder | Cross-platform, native module rebuild |
-| Package manager | pnpm 9+ | Monorepo with workspaces |
+| Purpose | Library | Version | Notes |
+|---------|---------|---------|-------|
+| Desktop framework | Electron | 42.x | Node 24.x runtime |
+| Frontend framework | React | 19.x | |
+| UI components | shadcn/ui | latest | Customizable, TS-native |
+| CSS | Tailwind CSS | 4.x | Utility-first |
+| State management | Zustand | 5.x | Lightweight |
+| LLM interaction | ai (Vercel AI SDK) | 6.x | `generateText`, `streamText`, `Output.object()`, `stopWhen` |
+| SQLite | better-sqlite3 | 12.x | Native, requires `@electron/rebuild` |
+| Vector store + BM25 | vectra | 0.14.x | Pure TS, built-in hybrid search |
+| Search | @tavily/core | latest | Search + Extract APIs |
+| Content extraction | @mozilla/readability + jsdom | latest | Fallback |
+| PDF parsing | pdf-parse | latest | Pure JS |
+| Concurrency | p-limit | latest | Bounded parallelism |
+| Logging | pino | 9.x | Structured JSON |
+| Trace context | AsyncLocalStorage | built-in | Node.js native |
+| Chinese tokenization | jieba-wasm | latest | For BM25 in vectra |
+| Markdown rendering | react-markdown | latest | React component |
+| Build (renderer) | Vite | 6.x | |
+| Build (main/preload) | esbuild | latest | Single-file preload |
+| Packaging | electron-builder | latest | Native module rebuild |
+| Package manager | pnpm | 9.x | Monorepo workspaces |
 
 ---
 
 ## 11. MVP Phasing
 
-### Phase 1: Web Research Core
+### Phase 1A: Run the loop (core pipeline)
 
-- Electron shell with security config
+- Electron shell with security config (CSP, sandbox, safeStorage)
 - Settings: LLM (OpenAI-compatible) + Tavily API key
 - 7-node pipeline state machine
-- Streaming dashboard with cost/token panel
-- Evidence-span citation system
-- History / report / source persistence
+- Basic dashboard (progress bar, phase text, log stream)
+- Final Markdown report display
+- SQLite: runs, sources, llm_calls tables
 - Markdown export
+
+### Phase 1B: Trust and polish
+
+- Evidence spans + claims + report_references
+- Citation verifier (evidence → numbered references)
+- Cost/token panel in dashboard
+- Timeline UI (trace_logs visualization)
+- Re-run options (full, reuse sources, reuse plan)
 
 ### Phase 2: Document Library RAG
 
 - TXT / MD / PDF parsing
 - Collection / document management UI
-- vectra index with hybrid search
+- vectra index with hybrid search + jieba-wasm tokenization
+- IndexingQueue with per-collection serialization
 - Document search tool for subagents
-- Report citations linking to local documents
+- Report citations linking to local documents (source_type: "document")
 
-### Phase 3: Engineering Polish
+### Phase 3: Engineering polish
 
 - Playwright optional fallback for JS pages
 - Auto-update (electron-updater)
 - System tray
-- Advanced tracing / timeline UI
-- Cost analytics dashboard
-- Re-run with source/plan reuse
+- Advanced cost analytics
+- Re-run with source/plan reuse persistence
