@@ -1,0 +1,8 @@
+node_modules/
+dist/
+dist-electron/
+*.tsbuildinfo
+*.db
+.env
+*.log
+.DS_Store

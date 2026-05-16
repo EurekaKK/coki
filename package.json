@@ -1,0 +1,20 @@
+{
+  "name": "coki",
+  "private": true,
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "dev": "concurrently \"pnpm --filter @coki/renderer dev\" \"pnpm --filter @coki/main dev\"",
+    "build": "pnpm --filter @coki/renderer build && pnpm --filter @coki/preload build && pnpm --filter @coki/main build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint . --ext .ts,.tsx",
+    "typecheck": "tsc -b"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.1.0",
+    "eslint": "^9.0.0",
+    "@types/node": "^24.0.0"
+  }
+}

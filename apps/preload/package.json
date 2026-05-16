@@ -1,0 +1,9 @@
+{
+  "name": "@coki/preload",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --platform=node --outfile=dist/preload.js --format=cjs --external:electron"
+  }
+}

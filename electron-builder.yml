@@ -1,0 +1,19 @@
+appId: com.coki.app
+productName: Coki
+directories:
+  output: dist-electron
+files:
+  - "apps/main/dist/**/*"
+  - "apps/preload/dist/**/*"
+  - "apps/renderer/dist/**/*"
+  - "node_modules/**/*"
+extraResources:
+  - from: "packages/engine/src/"
+    to: "engine/"
+mac:
+  category: public.app-category.productivity
+  target: dmg
+win:
+  target: nsis
+linux:
+  target: AppImage

@@ -1,0 +1,20 @@
+{
+  "name": "@coki/main",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "esbuild src/index.ts --bundle --platform=node --outfile=dist/index.js --external:electron --external:better-sqlite3"
+  },
+  "dependencies": {
+    "@coki/engine": "workspace:*",
+    "@coki/shared": "workspace:*",
+    "electron": "^42.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "tsx": "^4.0.0"
+  }
+}
