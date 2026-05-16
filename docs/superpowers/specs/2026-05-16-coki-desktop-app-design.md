@@ -30,6 +30,8 @@ Coki is a complete TypeScript rewrite of [Deep-Research-Agent](/Users/eureka/cod
 | better-sqlite3 | **12.x** | Must rebuild via `@electron/rebuild` |
 | pnpm | **9.x** | Workspace protocol |
 
+All runtime and build dependencies must be pinned in `package.json` — no floating `latest`.
+
 ---
 
 ## 1. Project Structure
@@ -147,24 +149,27 @@ When combining tools with structured output, structured output itself consumes o
 
 ```typescript
 // packages/engine/src/agents/react-agent.ts
+import { generateText, Output, stepCountIs } from "ai";
+
 async function runSubagent(
   subtask: Subtask,
   tools: ToolSet,
   config: AgentConfig,
   signal: AbortSignal
 ): Promise<SubagentReport> {
-  const { text, toolResults } = await generateText({
+  const { output } = await generateText({
     model: config.model,
     system: SUBAGENT_SYSTEM_PROMPT,
-    messages: [{ role: 'user', content: subtask.instruction }],
+    messages: [{ role: "user", content: subtask.instruction }],
     tools,
+    output: Output.object({ schema: SubagentReportSchema }),
     stopWhen: stepCountIs(config.maxSteps + 1),  // +1 for final structured output step
     abortSignal: signal,
     onStepFinish: ({ toolCalls, toolResults }) => {
       // Emit progress events, guard rail checks
     }
   });
-  return extractReport(text, toolResults);
+  return output;  // schema-validated SubagentReport
 }
 ```
 
@@ -402,19 +407,23 @@ API keys are encrypted using Electron `safeStorage.encryptString()` before being
 ```typescript
 import { safeStorage } from 'electron';
 
-// Encrypt before storing
-const encrypted = await safeStorage.encryptString(apiKey);
+// Encrypt before storing (async API — non-blocking, supports key rotation)
+const encrypted = await safeStorage.encryptStringAsync(apiKey);
 // encrypted is a Buffer → store as BLOB
 
 // Decrypt when reading
-const decrypted = await safeStorage.decryptString(encryptedBuffer);
+const decrypted = await safeStorage.decryptStringAsync(encryptedBuffer);
 ```
+
+`packages/engine` never imports Electron APIs. Secret encryption/decryption is handled in `apps/main` only. Engine receives decrypted runtime secrets through dependency injection.
 
 Settings page shows only "configured" / "not configured" — never echoes full API keys.
 
 ### 6.5 Schema
 
 ```sql
+PRAGMA foreign_keys = ON;
+
 -- 1. Research runs
 CREATE TABLE runs (
   id TEXT PRIMARY KEY,
@@ -431,7 +440,7 @@ CREATE TABLE runs (
 -- 2. Subtask reports
 CREATE TABLE subtask_reports (
   id TEXT PRIMARY KEY,
-  run_id TEXT NOT NULL REFERENCES runs(id),
+  run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
   subtask_index INTEGER NOT NULL,
   instruction TEXT NOT NULL,
   report TEXT,
@@ -442,11 +451,11 @@ CREATE TABLE subtask_reports (
 -- 3. Sources
 CREATE TABLE sources (
   id TEXT PRIMARY KEY,
-  run_id TEXT NOT NULL REFERENCES runs(id),
+  run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
   source_type TEXT NOT NULL,      -- 'web' | 'document'
   url TEXT,                       -- web sources
-  document_id TEXT REFERENCES documents(id),  -- document sources
-  chunk_id TEXT,                  -- document sources
+  document_id TEXT REFERENCES documents(id) ON DELETE SET NULL,
+  chunk_id TEXT REFERENCES document_chunks(id) ON DELETE SET NULL,
   canonical_url TEXT,
   title TEXT,
   snippet TEXT,
@@ -459,8 +468,8 @@ CREATE TABLE sources (
 -- 4. Evidence spans
 CREATE TABLE evidence_spans (
   id TEXT PRIMARY KEY,
-  run_id TEXT NOT NULL REFERENCES runs(id),
-  source_id TEXT NOT NULL REFERENCES sources(id),
+  run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+  source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
   quote TEXT NOT NULL,
   start_offset INTEGER,
   end_offset INTEGER,
@@ -470,7 +479,7 @@ CREATE TABLE evidence_spans (
 -- 5. Claims
 CREATE TABLE claims (
   id TEXT PRIMARY KEY,
-  run_id TEXT NOT NULL REFERENCES runs(id),
+  run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
   text TEXT NOT NULL,
   confidence TEXT NOT NULL,       -- high/medium/low
   created_at TEXT NOT NULL
@@ -478,19 +487,20 @@ CREATE TABLE claims (
 
 -- 6. Claim ↔ Evidence mapping
 CREATE TABLE claim_evidence (
-  claim_id TEXT NOT NULL REFERENCES claims(id),
-  evidence_id TEXT NOT NULL REFERENCES evidence_spans(id),
+  claim_id TEXT NOT NULL REFERENCES claims(id) ON DELETE CASCADE,
+  evidence_id TEXT NOT NULL REFERENCES evidence_spans(id) ON DELETE CASCADE,
   PRIMARY KEY (claim_id, evidence_id)
 );
 
 -- 7. Report references (final numbered citations in the report)
 CREATE TABLE report_references (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  run_id TEXT NOT NULL REFERENCES runs(id),
-  source_id TEXT NOT NULL REFERENCES sources(id),
+  run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+  source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
   reference_number INTEGER NOT NULL,
   cited_text TEXT,
-  UNIQUE(run_id, reference_number)
+  UNIQUE(run_id, reference_number),
+  UNIQUE(run_id, source_id)      -- one source = one reference number per run
 );
 
 -- 8. Document collections
@@ -510,7 +520,7 @@ CREATE TABLE collections (
 -- 9. Documents
 CREATE TABLE documents (
   id TEXT PRIMARY KEY,
-  collection_id TEXT NOT NULL REFERENCES collections(id),
+  collection_id TEXT NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
   filename TEXT NOT NULL,
   file_path TEXT NOT NULL,         -- app-managed copy under userData
   content_hash TEXT,
@@ -522,7 +532,21 @@ CREATE TABLE documents (
   created_at TEXT NOT NULL
 );
 
--- 10. Config (encrypted API keys)
+-- 10. Document chunks
+CREATE TABLE document_chunks (
+  id TEXT PRIMARY KEY,
+  document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+  collection_id TEXT NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+  chunk_index INTEGER NOT NULL,
+  text TEXT NOT NULL,
+  content_hash TEXT,
+  start_offset INTEGER,
+  end_offset INTEGER,
+  created_at TEXT NOT NULL,
+  UNIQUE(document_id, chunk_index)
+);
+
+-- 11. Config (encrypted API keys)
 CREATE TABLE config (
   key TEXT PRIMARY KEY,
   encrypted_value BLOB,           -- safeStorage encrypted; NULL for non-secret values
@@ -530,10 +554,10 @@ CREATE TABLE config (
   updated_at TEXT NOT NULL
 );
 
--- 11. Trace logs
+-- 12. Trace logs
 CREATE TABLE trace_logs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  run_id TEXT REFERENCES runs(id),
+  run_id TEXT REFERENCES runs(id) ON DELETE CASCADE,
   phase TEXT,
   event_type TEXT,
   message TEXT,
@@ -542,10 +566,10 @@ CREATE TABLE trace_logs (
   created_at TEXT NOT NULL
 );
 
--- 12. LLM call records
+-- 13. LLM call records
 CREATE TABLE llm_calls (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  run_id TEXT REFERENCES runs(id),
+  run_id TEXT REFERENCES runs(id) ON DELETE CASCADE,
   role TEXT,
   model TEXT,
   input_tokens INTEGER,
@@ -553,6 +577,21 @@ CREATE TABLE llm_calls (
   latency_ms INTEGER,
   created_at TEXT NOT NULL
 );
+
+-- Indexes
+CREATE INDEX idx_runs_created_at ON runs(created_at DESC);
+CREATE INDEX idx_runs_status ON runs(status);
+CREATE INDEX idx_sources_run_id ON sources(run_id);
+CREATE INDEX idx_sources_cited ON sources(run_id, cited_in_report);
+CREATE INDEX idx_evidence_run_id ON evidence_spans(run_id);
+CREATE INDEX idx_evidence_source_id ON evidence_spans(source_id);
+CREATE INDEX idx_claims_run_id ON claims(run_id);
+CREATE INDEX idx_trace_logs_run_id_created_at ON trace_logs(run_id, created_at);
+CREATE INDEX idx_llm_calls_run_id ON llm_calls(run_id);
+CREATE INDEX idx_documents_collection_id ON documents(collection_id);
+CREATE INDEX idx_documents_status ON documents(status);
+CREATE INDEX idx_document_chunks_document_id ON document_chunks(document_id);
+CREATE INDEX idx_document_chunks_collection_id ON document_chunks(collection_id);
 ```
 
 ---
@@ -732,6 +771,20 @@ interface CokiAPI {
 
 **Document import security**: Renderer calls `importFiles(collectionId)`. Main process opens `dialog.showOpenDialog` with extension filter (`*.txt, *.md, *.pdf`). Files are copied to `app.getPath("userData")/documents/{collectionId}/{docId}/original.ext`. All subsequent indexing, parsing, and display operate on the app-managed copy. Renderer never specifies an absolute file path.
 
+**Engine ↔ Main boundary**:
+
+```typescript
+// packages/engine — never imports Electron
+interface RuntimeSecrets {
+  llmApiKey: string;
+  tavilyApiKey: string;
+}
+
+// apps/main — decrypts, then injects
+const secrets = await secretStore.load();  // decrypts via safeStorage
+const engine = new ResearchEngine(db, config, secrets);
+```
+
 ### 9.3 Security
 
 ```typescript
@@ -761,25 +814,30 @@ mainWindow.webContents.setWindowOpenHandler(({ url }) => {
   return { action: "deny" };
 });
 
-// Block navigation to external URLs
+// Allow app's own origin, open external https: links in system browser
 mainWindow.webContents.on("will-navigate", (event, url) => {
-  // Only allow app's own origin (file:// or dev server)
+  const parsed = new URL(url);
+  const allowed =
+    parsed.protocol === "file:" ||
+    (parsed.protocol === "http:" && parsed.hostname === "localhost");
+  if (allowed) return;
   event.preventDefault();
+  if (parsed.protocol === "https:") {
+    shell.openExternal(url);
+  }
 });
 ```
 
 **CSP** (in renderer `index.html`):
 
-```html
-<meta http-equiv="Content-Security-Policy" content="
-  default-src 'self';
-  script-src 'self';
-  style-src 'self' 'unsafe-inline';
-  img-src 'self' data: https:;
-  connect-src 'self';
-  object-src 'none';
-  base-uri 'none';
-">
+Production:
+```
+default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; object-src 'none'; base-uri 'none';
+```
+
+Development (add Vite dev server + HMR websocket):
+```
+default-src 'self'; script-src 'self' http://localhost:*; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' http://localhost:* ws://localhost:*; object-src 'none'; base-uri 'none';
 ```
 
 **Preload constraints**: Preload is built by esbuild into a single file. It contains only `contextBridge.exposeInMainWorld("coki", api)`. No file I/O, no DB access, no complex logic.
@@ -810,28 +868,28 @@ app.whenReady().then(() => {
 
 ## 10. Key Libraries Summary
 
-| Purpose | Library | Version | Notes |
-|---------|---------|---------|-------|
-| Desktop framework | Electron | 42.x | Node 24.x runtime |
-| Frontend framework | React | 19.x | |
-| UI components | shadcn/ui | latest | Customizable, TS-native |
-| CSS | Tailwind CSS | 4.x | Utility-first |
-| State management | Zustand | 5.x | Lightweight |
-| LLM interaction | ai (Vercel AI SDK) | 6.x | `generateText`, `streamText`, `Output.object()`, `stopWhen` |
-| SQLite | better-sqlite3 | 12.x | Native, requires `@electron/rebuild` |
-| Vector store + BM25 | vectra | 0.14.x | Pure TS, built-in hybrid search |
-| Search | @tavily/core | latest | Search + Extract APIs |
-| Content extraction | @mozilla/readability + jsdom | latest | Fallback |
-| PDF parsing | pdf-parse | latest | Pure JS |
-| Concurrency | p-limit | latest | Bounded parallelism |
-| Logging | pino | 9.x | Structured JSON |
-| Trace context | AsyncLocalStorage | built-in | Node.js native |
-| Chinese tokenization | jieba-wasm | latest | For BM25 in vectra |
-| Markdown rendering | react-markdown | latest | React component |
-| Build (renderer) | Vite | 6.x | |
-| Build (main/preload) | esbuild | latest | Single-file preload |
-| Packaging | electron-builder | latest | Native module rebuild |
-| Package manager | pnpm | 9.x | Monorepo workspaces |
+| Purpose | Library | Notes |
+|---------|---------|-------|
+| Desktop framework | Electron 42.x | Node 24.x runtime |
+| Frontend framework | React 19.x | |
+| UI components | shadcn/ui | Pinned, TS-native |
+| CSS | Tailwind CSS 4.x | Utility-first |
+| State management | Zustand 5.x | Lightweight |
+| LLM interaction | ai 6.x (Vercel AI SDK) | `generateText`, `streamText`, `Output.object()`, `stopWhen` |
+| SQLite | better-sqlite3 12.x | Native, requires `@electron/rebuild` |
+| Vector store + BM25 | vectra 0.14.x | Pure TS, built-in hybrid search |
+| Search | @tavily/core | Pinned, Search + Extract APIs |
+| Content extraction | @mozilla/readability + jsdom | Pinned, fallback |
+| PDF parsing | pdf-parse | Pinned, pure JS |
+| Concurrency | p-limit | Pinned, bounded parallelism |
+| Logging | pino 9.x | Structured JSON |
+| Trace context | AsyncLocalStorage | Node.js native |
+| Chinese tokenization | jieba-wasm | Pinned, for BM25 |
+| Markdown rendering | react-markdown | Pinned |
+| Build (renderer) | Vite 6.x | |
+| Build (main/preload) | esbuild | Pinned, single-file preload |
+| Packaging | electron-builder | Pinned, native module rebuild |
+| Package manager | pnpm 9.x | Monorepo workspaces |
 
 ---
 
@@ -845,6 +903,7 @@ app.whenReady().then(() => {
 - Basic dashboard (progress bar, phase text, log stream)
 - Final Markdown report display
 - SQLite: runs, sources, llm_calls tables
+- Basic citation: `[src: url]` → numbered references with URL liveness check
 - Markdown export
 
 ### Phase 1B: Trust and polish
