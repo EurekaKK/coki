@@ -388,6 +388,8 @@ Using **better-sqlite3** (synchronous, high-performance SQLite binding).
 
 Or configure in `electron-builder.yml` to rebuild automatically during packaging.
 
+Electron 42 no longer auto-downloads its binary via postinstall. CI pipelines should run `npx install-electron` before `electron-rebuild`.
+
 ### 6.2 Performance considerations
 
 - **Trace logs**: batched flush (buffer writes, flush every 500ms or 100 entries)
@@ -411,9 +413,16 @@ import { safeStorage } from 'electron';
 const encrypted = await safeStorage.encryptStringAsync(apiKey);
 // encrypted is a Buffer → store as BLOB
 
-// Decrypt when reading
-const decrypted = await safeStorage.decryptStringAsync(encryptedBuffer);
+// Decrypt when reading — returns { result, shouldReEncrypt }
+const { result, shouldReEncrypt } = await safeStorage.decryptStringAsync(encryptedBuffer);
+if (shouldReEncrypt) {
+  const newEncrypted = await safeStorage.encryptStringAsync(result);
+  // update SQLite encrypted_value
+}
+return result;
 ```
+
+On startup, check availability: `await safeStorage.isAsyncEncryptionAvailable()` — especially important on Linux where the libsecret/kwallet backend may be missing.
 
 `packages/engine` never imports Electron APIs. Secret encryption/decryption is handled in `apps/main` only. Engine receives decrypted runtime secrets through dependency injection.
 
@@ -423,6 +432,7 @@ Settings page shows only "configured" / "not configured" — never echoes full A
 
 ```sql
 PRAGMA foreign_keys = ON;
+-- Every SQLite connection (main process + Worker Threads) must execute this after opening.
 
 -- 1. Research runs
 CREATE TABLE runs (
@@ -592,7 +602,16 @@ CREATE INDEX idx_documents_collection_id ON documents(collection_id);
 CREATE INDEX idx_documents_status ON documents(status);
 CREATE INDEX idx_document_chunks_document_id ON document_chunks(document_id);
 CREATE INDEX idx_document_chunks_collection_id ON document_chunks(collection_id);
+
+-- 14. Schema migrations
+CREATE TABLE schema_migrations (
+  version INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  applied_at TEXT NOT NULL
+);
 ```
+
+All schema changes are applied through ordered migrations, not ad-hoc `CREATE TABLE` statements. Desktop users have long-lived local databases that cannot be rebuilt from scratch.
 
 ---
 
@@ -816,11 +835,20 @@ mainWindow.webContents.setWindowOpenHandler(({ url }) => {
 
 // Allow app's own origin, open external https: links in system browser
 mainWindow.webContents.on("will-navigate", (event, url) => {
-  const parsed = new URL(url);
-  const allowed =
-    parsed.protocol === "file:" ||
-    (parsed.protocol === "http:" && parsed.hostname === "localhost");
-  if (allowed) return;
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    event.preventDefault();
+    return;
+  }
+
+  const isProdApp = parsed.protocol === "file:";
+  const isDevServer =
+    isDev && parsed.protocol === "http:" && parsed.hostname === "localhost";
+
+  if (isProdApp || isDevServer) return;
+
   event.preventDefault();
   if (parsed.protocol === "https:") {
     shell.openExternal(url);
@@ -856,10 +884,16 @@ Terminal events: `research.cancelled`, `research.failed`, `research.completed`.
 ### 9.5 Main process entry
 
 ```typescript
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   const db = new CokiDatabase(getDataPath());
-  const engine = new ResearchEngine(db, config);
-  registerIPCHandlers(engine, db);
+  const configStore = new ConfigStore(db);
+  const secretStore = new SecretStore(db);
+  const secrets = await secretStore.load();
+  const config = await configStore.loadPlainConfig();
+
+  const engine = new ResearchEngine(db, config, secrets);
+
+  registerIPCHandlers(engine, db, configStore, secretStore);
   createMainWindow();
 });
 ```
