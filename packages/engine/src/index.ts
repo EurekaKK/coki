@@ -22,3 +22,11 @@ export type {
   StreamOptions,
   GenerateResult,
 } from "./llm";
+
+export { TavilySearchProvider, fallbackExtract } from "./search";
+export type {
+  SearchResult,
+  ExtractResult,
+  SearchOptions,
+  FallbackExtractResult,
+} from "./search";
