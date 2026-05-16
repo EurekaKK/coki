@@ -9,3 +9,6 @@ export type {
   TavilyConfig,
   DepthProfile,
 } from "./config";
+
+export { CokiDatabase } from "./db";
+export type { RunRow, SourceRow, LLMCallRow } from "./db";
