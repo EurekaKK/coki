@@ -40,8 +40,7 @@ export interface GenerateOptions {
   messages?: Array<{ role: string; content: string }>;
   temperature?: number;
   maxTokens?: number;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  output?: any;
+  output?: unknown;
   tools?: ToolSet;
   stopWhen?: StopCondition<ToolSet> | Array<StopCondition<ToolSet>>;
   abortSignal?: AbortSignal;
@@ -99,34 +98,44 @@ export class LLMClient {
     const model = this.getModel(opts.model);
     const role = opts.role ?? "default";
     const startTime = Date.now();
+    let inputTokens = 0;
+    let outputTokens = 0;
 
-    const result = await generateText({
-      model,
-      system: opts.system,
-      prompt: opts.prompt,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      messages: opts.messages as any,
-      temperature: opts.temperature ?? this.defaultTemperature,
-      maxTokens: opts.maxTokens ?? this.defaultMaxTokens,
-      output: opts.output,
-      tools: opts.tools,
-      stopWhen: opts.stopWhen,
-      abortSignal: opts.abortSignal,
-    } as any);
+    try {
+      // Cast needed: AI SDK 6 types don't accept the full combination of
+      // output + tools + stopWhen + messages together, even though the
+      // runtime handles them correctly.
+      const result = await generateText({
+        model,
+        system: opts.system,
+        prompt: opts.prompt,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        messages: opts.messages as any,
+        temperature: opts.temperature ?? this.defaultTemperature,
+        maxTokens: opts.maxTokens ?? this.defaultMaxTokens,
+        output: opts.output as any,
+        tools: opts.tools,
+        stopWhen: opts.stopWhen,
+        abortSignal: opts.abortSignal,
+      } as any);
 
-    const latencyMs = Date.now() - startTime;
-    this.emitCall({
-      role,
-      model: typeof opts.model === "string" ? opts.model : this.defaultModel,
-      inputTokens: result.usage.inputTokens ?? 0,
-      outputTokens: result.usage.outputTokens ?? 0,
-      latencyMs,
-    });
+      inputTokens = result.usage.inputTokens ?? 0;
+      outputTokens = result.usage.outputTokens ?? 0;
 
-    return {
-      text: result.text,
-      output: opts.output ? result.output : undefined,
-    };
+      return {
+        text: result.text,
+        output: opts.output ? result.output : undefined,
+      };
+    } finally {
+      const latencyMs = Date.now() - startTime;
+      this.emitCall({
+        role,
+        model: typeof opts.model === "string" ? opts.model : this.defaultModel,
+        inputTokens,
+        outputTokens,
+        latencyMs,
+      });
+    }
   }
 
   /** Call streamText from AI SDK 6 with call tracking. Returns the full text. */
@@ -134,40 +143,45 @@ export class LLMClient {
     const model = this.getModel(opts.model);
     const role = opts.role ?? "default";
     const startTime = Date.now();
+    let inputTokens = 0;
+    let outputTokens = 0;
 
-    const result = streamText({
-      model,
-      system: opts.system,
-      prompt: opts.prompt,
-      temperature: opts.temperature ?? this.defaultTemperature,
-      maxTokens: opts.maxTokens ?? this.defaultMaxTokens,
-      abortSignal: opts.abortSignal,
-      onChunk: opts.onChunk
-        ? ({ chunk }: { chunk: { type: string; textDelta?: string } }) => {
-            if (chunk.type === "text-delta") {
-              opts.onChunk!({
-                type: chunk.type,
-                textDelta: chunk.textDelta,
-              });
-            }
-          }
-        : undefined,
-    } as any);
+    try {
+      // Cast needed: AI SDK 6 types don't accept the full combination of
+      // option properties together, even though the runtime handles them.
+      const result = streamText({
+        model,
+        system: opts.system,
+        prompt: opts.prompt,
+        temperature: opts.temperature ?? this.defaultTemperature,
+        maxTokens: opts.maxTokens ?? this.defaultMaxTokens,
+        abortSignal: opts.abortSignal,
+      } as any);
 
-    // Consume the stream to get the full text
-    const text = await result.text;
-    const usage = await result.usage;
-    const latencyMs = Date.now() - startTime;
+      // Drive the onChunk callback by iterating over the text stream
+      if (opts.onChunk) {
+        for await (const textDelta of result.textStream) {
+          opts.onChunk({ type: "text-delta", textDelta });
+        }
+      }
 
-    this.emitCall({
-      role,
-      model: typeof opts.model === "string" ? opts.model : this.defaultModel,
-      inputTokens: usage.inputTokens ?? 0,
-      outputTokens: usage.outputTokens ?? 0,
-      latencyMs,
-    });
+      // Consume the stream to get the full text
+      const text = await result.text;
+      const usage = await result.usage;
+      inputTokens = usage.inputTokens ?? 0;
+      outputTokens = usage.outputTokens ?? 0;
 
-    return text;
+      return text;
+    } finally {
+      const latencyMs = Date.now() - startTime;
+      this.emitCall({
+        role,
+        model: typeof opts.model === "string" ? opts.model : this.defaultModel,
+        inputTokens,
+        outputTokens,
+        latencyMs,
+      });
+    }
   }
 
   /** Emit a call record to all registered callbacks. */
