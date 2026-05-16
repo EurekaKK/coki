@@ -1,4 +1,5 @@
-import { BrowserWindow, session, shell } from "electron";
+import electron from "electron";
+const { BrowserWindow, session, shell } = electron;
 
 export function setupSecurity(mainWindow: BrowserWindow): void {
   // Block all permission requests

@@ -1,4 +1,5 @@
-import { app, BrowserWindow } from "electron";
+import electron from "electron";
+const { app, BrowserWindow } = electron;
 import { join } from "node:path";
 import { CokiDatabase, ConfigManager, ResearchEngine } from "@coki/engine";
 import { registerIPCHandlers } from "./ipc";

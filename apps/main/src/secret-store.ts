@@ -1,4 +1,5 @@
-import { safeStorage } from "electron";
+import electron from "electron";
+const { safeStorage } = electron;
 import type { CokiDatabase } from "@coki/engine";
 
 export class SecretStore {

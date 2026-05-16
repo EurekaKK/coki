@@ -1,4 +1,5 @@
-import { ipcMain, BrowserWindow } from "electron";
+import electron from "electron";
+const { ipcMain, BrowserWindow } = electron;
 import type { ResearchEngine, CokiDatabase } from "@coki/engine";
 import type { SecretStore } from "./secret-store";
 import type { ConfigManager } from "@coki/engine";
