@@ -8,6 +8,7 @@
 import type { PipelineContext } from "../context";
 import type { LLMClient } from "../../llm/client";
 import { REFLECTION_PROMPT } from "../../agents/prompts";
+import { randomUUID } from "node:crypto";
 import { Output } from "ai";
 import { z } from "zod";
 
@@ -74,7 +75,7 @@ export function createReflectionNode(llm: LLMClient) {
         ctx.iterationCount < ctx.maxIterations
       ) {
         const newSubtasks = reflection.gaps.slice(0, 3).map((gap) => ({
-          id: crypto.randomUUID(),
+          id: randomUUID(),
           instruction: `Address this research gap: ${gap}`,
           keywords: gap.split(/[，,、\s]+/).filter(Boolean),
         }));

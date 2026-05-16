@@ -87,4 +87,19 @@ CREATE INDEX IF NOT EXISTS idx_llm_calls_run_id ON llm_calls(run_id);
 CREATE INDEX IF NOT EXISTS idx_trace_logs_run_id_created_at ON trace_logs(run_id, created_at);
 `,
   },
+  {
+    version: 2,
+    name: "report_references",
+    sql: `
+CREATE TABLE IF NOT EXISTS report_references (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+  ref_number INTEGER NOT NULL,
+  source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+  UNIQUE(run_id, ref_number)
+);
+
+CREATE INDEX IF NOT EXISTS idx_report_references_run_id ON report_references(run_id);
+`,
+  },
 ];

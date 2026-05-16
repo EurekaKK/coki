@@ -74,7 +74,7 @@ export function addCitations(report: string): CitationResult {
   // Build references section
   if (sources.length > 0) {
     const referencesSection = sources
-      .map((s) => `[${s.id}] ${s.url}`)
+      .map((s) => `[^${s.id}]: ${s.url}`)
       .join("\n");
     cleaned += `\n\n## References\n${referencesSection}`;
   }

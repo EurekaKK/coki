@@ -10,6 +10,9 @@ describe("addCitations", () => {
     expect(result.citedReport).toContain("## References");
     expect(result.citedReport).toContain("https://example.com");
     expect(result.sources).toHaveLength(2);
+    // Verify exact reference format
+    expect(result.citedReport).toMatch(/\[\^1\]: https:\/\/example\.com/);
+    expect(result.citedReport).toMatch(/\[\^2\]: https:\/\/report\.com/);
   });
 
   it("deduplicates same URL", () => {
@@ -17,7 +20,8 @@ describe("addCitations", () => {
     const result = addCitations(report);
     expect(result.sources).toHaveLength(1);
     expect(result.citedReport).toContain("[^1]");
-    expect(result.citedReport.match(/\[\^1\]/g)?.length).toBe(2);
+    // 2 inline references in body + 1 in References section
+    expect(result.citedReport.match(/\[\^1\]/g)?.length).toBe(3);
   });
 
   it("strips orphaned [src:] markers", () => {

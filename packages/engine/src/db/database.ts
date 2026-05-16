@@ -199,7 +199,7 @@ export class CokiDatabase {
   insertSource(
     source: Pick<SourceRow, "run_id" | "source_type"> &
       Partial<Omit<SourceRow, "id" | "run_id" | "source_type" | "retrieved_at">>,
-  ): void {
+  ): string {
     this.checkNotClosed();
     const id = randomUUID();
     const now = new Date().toISOString();
@@ -225,6 +225,7 @@ export class CokiDatabase {
         now,
         source.cited_in_report ?? 0,
       );
+    return id;
   }
 
   getSourcesByRun(runId: string): SourceRow[] {
@@ -232,6 +233,25 @@ export class CokiDatabase {
     return this.db
       .prepare("SELECT * FROM sources WHERE run_id = ?")
       .all(runId) as SourceRow[];
+  }
+
+  // -------------------------------------------------------------------------
+  // Report References
+  // -------------------------------------------------------------------------
+
+  insertReportReference(ref: {
+    id: string;
+    runId: string;
+    refNumber: number;
+    sourceId: string;
+  }): void {
+    this.checkNotClosed();
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO report_references (id, run_id, ref_number, source_id)
+         VALUES (?, ?, ?, ?)`,
+      )
+      .run(ref.id, ref.runId, ref.refNumber, ref.sourceId);
   }
 
   // -------------------------------------------------------------------------
