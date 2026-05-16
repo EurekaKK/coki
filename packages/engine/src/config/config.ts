@@ -179,6 +179,15 @@ export class ConfigManager {
   private readonly userRoles: Record<string, Partial<RoleConfig>>;
 
   constructor(overrides: ConfigOverrides) {
+    const mergedRoles: Record<string, Partial<RoleConfig>> = {};
+    if (overrides.roles) {
+      for (const [name, userRole] of Object.entries(overrides.roles)) {
+        const defaultRole = DEFAULT_ROLES[name];
+        mergedRoles[name] = defaultRole
+          ? { ...defaultRole, ...userRole }
+          : { ...userRole };
+      }
+    }
     this.config = {
       llm: deepMerge(
         { ...DEFAULT_LLM },
@@ -192,7 +201,7 @@ export class ConfigManager {
         { ...DEFAULT_TAVILY },
         (overrides.tavily ?? {}) as Partial<TavilyConfig>,
       ),
-      roles: overrides.roles ? { ...overrides.roles } : {},
+      roles: mergedRoles,
     };
     this.userRoles = this.config.roles;
   }
@@ -207,7 +216,7 @@ export class ConfigManager {
     const userRole = this.userRoles[role];
     const defaultRole = DEFAULT_ROLES[role];
     return {
-      model: userRole?.model ?? this.config.llm.model,
+      model: userRole?.model ?? defaultRole?.model ?? this.config.llm.model,
       temperature: userRole?.temperature ?? defaultRole?.temperature ?? this.config.llm.temperature,
     };
   }

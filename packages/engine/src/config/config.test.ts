@@ -29,7 +29,19 @@ describe("ConfigManager", () => {
       roles: { planner: { model: "planner-model" } },
     });
     expect(cm.getRole("planner").model).toBe("planner-model");
-    expect(cm.getRole("subagent").model).toBe("default-model");
+    // subagent has no user override but has a DEFAULT_ROLES entry, so uses that model
+    expect(cm.getRole("subagent").model).toBe("gpt-4o-mini");
+    // an unknown role with no default falls back to global llm.model
+    expect(cm.getRole("custom-role").model).toBe("default-model");
+  });
+
+  it("falls back to default role model when user override has no model", () => {
+    const cm = new ConfigManager({
+      roles: { planner: { temperature: 0.9 } },
+    });
+    // Should use DEFAULT_ROLES.planner.model, not the global llm.model
+    expect(cm.getRole("planner").model).toBe("gpt-4o-mini");
+    expect(cm.getRole("planner").temperature).toBe(0.9);
   });
 
   it("returns depth profile", () => {
