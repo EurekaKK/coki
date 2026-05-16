@@ -7,6 +7,9 @@
     "build": "esbuild src/index.ts --bundle --platform=node --outfile=dist/preload.js --format=cjs --external:electron"
   },
   "dependencies": {
-    "electron": "^42.0.0"
+    "electron": "^32.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
   }
 }

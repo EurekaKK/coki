@@ -21,7 +21,7 @@ export class ResearchEngine {
   private db: CokiDatabase;
   private config: ConfigManager;
   private llm: LLMClient;
-  private search: TavilySearchProvider;
+  private search: TavilySearchProvider | null;
   private activeRuns = new Map<string, AbortController>();
 
   constructor(db: CokiDatabase, configOverrides: ConfigOverrides, secrets: RuntimeSecrets) {
@@ -35,7 +35,7 @@ export class ResearchEngine {
       temperature: llmConfig.temperature,
       maxTokens: llmConfig.maxTokens,
     });
-    this.search = new TavilySearchProvider(secrets.tavilyApiKey);
+    this.search = secrets.tavilyApiKey ? new TavilySearchProvider(secrets.tavilyApiKey) : null;
   }
 
   async *runResearch(
