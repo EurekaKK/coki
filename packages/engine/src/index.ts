@@ -12,3 +12,13 @@ export type {
 
 export { CokiDatabase } from "./db";
 export type { RunRow, SourceRow, LLMCallRow } from "./db";
+
+export { LLMClient } from "./llm";
+export type {
+  LLMClientConfig,
+  LLMCallRecord,
+  OnCallCallback,
+  GenerateOptions,
+  StreamOptions,
+  GenerateResult,
+} from "./llm";
