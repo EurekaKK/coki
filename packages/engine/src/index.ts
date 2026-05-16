@@ -30,3 +30,17 @@ export type {
   SearchOptions,
   FallbackExtractResult,
 } from "./search";
+
+export { Pipeline } from "./pipeline";
+export type {
+  NodeId,
+  PipelineNode,
+  Transition,
+  PipelineConfig,
+  PipelineEvent,
+  Subtask,
+  SubagentReport,
+  SourceRecord,
+  ResearchPlan,
+  PipelineContext,
+} from "./pipeline";
