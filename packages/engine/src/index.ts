@@ -44,3 +44,8 @@ export type {
   ResearchPlan,
   PipelineContext,
 } from "./pipeline";
+
+export { ResearchEngine } from "./engine";
+export type { RuntimeSecrets } from "./engine";
+
+export { addCitations } from "./citation/citation";
