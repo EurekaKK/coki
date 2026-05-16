@@ -57,6 +57,7 @@ export interface LLMCallRow {
 
 export class CokiDatabase {
   private readonly db: Database.Database;
+  private closed = false;
 
   constructor(dbPath: string) {
     this.db = new Database(dbPath);
@@ -72,37 +73,56 @@ export class CokiDatabase {
   }
 
   // -------------------------------------------------------------------------
+  // Guard
+  // -------------------------------------------------------------------------
+
+  private checkNotClosed(): void {
+    if (this.closed) {
+      throw new Error("CokiDatabase has been closed");
+    }
+  }
+
+  // -------------------------------------------------------------------------
   // Migration runner
   // -------------------------------------------------------------------------
 
   private runMigrations(): void {
-    // Ensure schema_migrations table exists
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS schema_migrations (
-        version INTEGER PRIMARY KEY,
-        name TEXT NOT NULL,
-        applied_at TEXT NOT NULL
-      );
-    `);
+    try {
+      // Ensure schema_migrations table exists
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+          version INTEGER PRIMARY KEY,
+          name TEXT NOT NULL,
+          applied_at TEXT NOT NULL
+        );
+      `);
 
-    const applied = new Set<number>();
-    const rows = this.db
-      .prepare("SELECT version FROM schema_migrations")
-      .all() as { version: number }[];
-    for (const row of rows) {
-      applied.add(row.version);
-    }
-
-    const now = () => new Date().toISOString();
-    const insertMigration = this.db.prepare(
-      "INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)",
-    );
-
-    for (const migration of MIGRATIONS) {
-      if (!applied.has(migration.version)) {
-        this.db.exec(migration.sql);
-        insertMigration.run(migration.version, migration.name, now());
+      const applied = new Set<number>();
+      const rows = this.db
+        .prepare("SELECT version FROM schema_migrations")
+        .all() as { version: number }[];
+      for (const row of rows) {
+        applied.add(row.version);
       }
+
+      const now = () => new Date().toISOString();
+      const insertMigration = this.db.prepare(
+        "INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)",
+      );
+
+      for (const migration of MIGRATIONS) {
+        if (!applied.has(migration.version)) {
+          const applyMigration = this.db.transaction(() => {
+            this.db.exec(migration.sql);
+            insertMigration.run(migration.version, migration.name, now());
+          });
+          applyMigration();
+        }
+      }
+    } catch (err) {
+      throw new Error(
+        `Database migration failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 
@@ -111,6 +131,7 @@ export class CokiDatabase {
   // -------------------------------------------------------------------------
 
   createRun(query: string, depth: number): string {
+    this.checkNotClosed();
     const id = randomUUID();
     const now = new Date().toISOString();
     this.db
@@ -122,6 +143,7 @@ export class CokiDatabase {
   }
 
   getRun(id: string): RunRow | null {
+    this.checkNotClosed();
     const row = this.db
       .prepare("SELECT * FROM runs WHERE id = ?")
       .get(id) as RunRow | undefined;
@@ -129,6 +151,7 @@ export class CokiDatabase {
   }
 
   listRuns(): RunRow[] {
+    this.checkNotClosed();
     return this.db
       .prepare("SELECT * FROM runs ORDER BY created_at DESC, ROWID DESC")
       .all() as RunRow[];
@@ -140,6 +163,7 @@ export class CokiDatabase {
     error?: string,
     citedReport?: string,
   ): void {
+    this.checkNotClosed();
     const isTerminal = status === "completed" || status === "failed";
     const now = new Date().toISOString();
 
@@ -157,12 +181,14 @@ export class CokiDatabase {
   }
 
   updateRunPlan(id: string, plan: string): void {
+    this.checkNotClosed();
     this.db
       .prepare("UPDATE runs SET research_plan = ? WHERE id = ?")
       .run(plan, id);
   }
 
   deleteRun(id: string): void {
+    this.checkNotClosed();
     this.db.prepare("DELETE FROM runs WHERE id = ?").run(id);
   }
 
@@ -174,6 +200,7 @@ export class CokiDatabase {
     source: Pick<SourceRow, "run_id" | "source_type"> &
       Partial<Omit<SourceRow, "id" | "run_id" | "source_type" | "retrieved_at">>,
   ): void {
+    this.checkNotClosed();
     const id = randomUUID();
     const now = new Date().toISOString();
     this.db
@@ -201,6 +228,7 @@ export class CokiDatabase {
   }
 
   getSourcesByRun(runId: string): SourceRow[] {
+    this.checkNotClosed();
     return this.db
       .prepare("SELECT * FROM sources WHERE run_id = ?")
       .all(runId) as SourceRow[];
@@ -213,6 +241,7 @@ export class CokiDatabase {
   insertLLMCall(
     call: Omit<LLMCallRow, "id" | "created_at">,
   ): void {
+    this.checkNotClosed();
     const now = new Date().toISOString();
     this.db
       .prepare(
@@ -232,6 +261,7 @@ export class CokiDatabase {
   }
 
   getLLMCallsByRun(runId: string): LLMCallRow[] {
+    this.checkNotClosed();
     return this.db
       .prepare("SELECT * FROM llm_calls WHERE run_id = ? ORDER BY id")
       .all(runId) as LLMCallRow[];
@@ -242,6 +272,8 @@ export class CokiDatabase {
   // -------------------------------------------------------------------------
 
   close(): void {
+    if (this.closed) return;
+    this.closed = true;
     this.db.close();
   }
 }
