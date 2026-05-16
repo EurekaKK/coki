@@ -40,18 +40,25 @@ export function createCiteNode(db: CokiDatabase) {
 
     const { citedReport, sources } = addCitations(ctx.report);
 
+    // Check URL liveness concurrently for all sources
+    const livenessResults = await Promise.all(
+      sources.map((s) => (s.url ? checkUrlLiveness(s.url) : Promise.resolve("failed" as const))),
+    );
+
     // Persist sources to database and write report_references
-    for (const source of sources) {
+    for (let i = 0; i < sources.length; i++) {
+      const source = sources[i];
+      const fetchStatus = livenessResults[i];
+
       const existingSource = [...ctx.sources.values()].find(
         (s) => s.url === source.url,
       );
 
-      // Check URL liveness
-      const fetchStatus = source.url
-        ? await checkUrlLiveness(source.url)
-        : "failed";
-
-      const sourceId = db.insertSource({
+      // Avoid duplicate source rows for the same URL within this run
+      const existing = source.url
+        ? db.getSourceByUrlAndRunId(source.url, ctx.runId)
+        : undefined;
+      const sourceId = existing?.id ?? db.insertSource({
         run_id: ctx.runId,
         source_type: "web",
         url: source.url,

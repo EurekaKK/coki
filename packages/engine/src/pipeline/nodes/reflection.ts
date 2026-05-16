@@ -88,8 +88,9 @@ export function createReflectionNode(llm: LLMClient) {
       }
 
       return { ...ctx, qualityScore, researchComplete: true };
-    } catch {
+    } catch (err) {
       // If reflection fails, proceed to synthesis
+      console.error("[reflection] Evaluation failed, proceeding to synthesis:", err);
       return { ...ctx, researchComplete: true };
     }
   };

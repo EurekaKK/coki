@@ -235,6 +235,13 @@ export class CokiDatabase {
       .all(runId) as SourceRow[];
   }
 
+  getSourceByUrlAndRunId(url: string, runId: string): { id: string } | undefined {
+    this.checkNotClosed();
+    return this.db
+      .prepare("SELECT id FROM sources WHERE url = ? AND run_id = ?")
+      .get(url, runId) as { id: string } | undefined;
+  }
+
   // -------------------------------------------------------------------------
   // Report References
   // -------------------------------------------------------------------------
