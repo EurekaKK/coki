@@ -3,14 +3,16 @@ import type { LLMClient } from "../../llm/client";
 import type { TavilySearchProvider } from "../../search/tavily";
 import type { DepthProfile } from "../../config/config";
 import { runSubagent } from "../../agents/react-agent";
-import { randomUUID } from "node:crypto";
 
 export function createSubagentsNode(
   llm: LLMClient,
-  search: TavilySearchProvider,
+  search: TavilySearchProvider | null,
   profile: DepthProfile
 ) {
-  return async function subagentsNode(ctx: PipelineContext): Promise<PipelineContext> {
+  return async function subagentsNode(ctx: PipelineContext, signal?: AbortSignal): Promise<PipelineContext> {
+    if (!search) {
+      throw new Error("Subagents node requires a TavilySearchProvider, but search is null.");
+    }
     const pendingSubtasks = ctx.subtasks.filter(
       (st) => !ctx.completedSubtasks.has(st.id)
     );
@@ -35,7 +37,8 @@ export function createSubagentsNode(
             maxToolErrors: 3,
             timeoutMs: 120_000,
           },
-          ctx.outputLanguage
+          ctx.outputLanguage,
+          signal
         );
         return report;
       })
@@ -45,7 +48,8 @@ export function createSubagentsNode(
     const newSources = new Map(ctx.sources);
     const newCompleted = new Set(ctx.completedSubtasks);
 
-    for (const result of results) {
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
       if (result.status === "fulfilled") {
         const report = result.value;
         newReports.push(report);
@@ -55,6 +59,12 @@ export function createSubagentsNode(
             newSources.set(source.url ?? source.id, source);
           }
         }
+      } else {
+        const subtask = pendingSubtasks[i];
+        console.error(
+          `[subagents] Subtask ${subtask.id} failed:`,
+          result.reason
+        );
       }
     }
 
