@@ -29,6 +29,7 @@ export async function runSubagent(
   llm: LLMClient,
   search: TavilySearchProvider,
   config: AgentConfig,
+  language: "zh" | "en" = "zh",
   signal?: AbortSignal
 ): Promise<SubagentReport> {
   const sources: SourceRecord[] = [];
@@ -89,7 +90,8 @@ export async function runSubagent(
     },
 
     submit_report: async (args: { report: string }) => {
-      return { success: true, report: args.report };
+      finalReport = args.report;
+      return { __submitted: true, report: args.report };
     },
   };
 
@@ -149,6 +151,8 @@ export async function runSubagent(
           role: "user",
           content: `Observation: ${JSON.stringify(result)}`,
         });
+        // Break early if submit_report was called
+        if (finalReport) break;
       } else {
         messages.push({
           role: "assistant",
@@ -166,9 +170,10 @@ export async function runSubagent(
 
   // If no final report from submit_report, generate one
   if (!finalReport) {
+    const languageName = language === "zh" ? "Chinese" : "English";
     const reportPrompt = SUBAGENT_REPORT_PROMPT
       .replace("{instruction}", instruction)
-      .replace("{language}", "Chinese")
+      .replace("{language}", languageName)
       .replace("{evidence}", evidence.join("\n\n---\n\n"));
 
     const { text } = await llm.generate({

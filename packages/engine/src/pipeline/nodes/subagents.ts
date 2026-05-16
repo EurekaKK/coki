@@ -2,14 +2,12 @@ import type { PipelineContext } from "../context";
 import type { LLMClient } from "../../llm/client";
 import type { TavilySearchProvider } from "../../search/tavily";
 import type { DepthProfile } from "../../config/config";
-import type { CokiDatabase } from "../../db/database";
 import { runSubagent } from "../../agents/react-agent";
 import { randomUUID } from "node:crypto";
 
 export function createSubagentsNode(
   llm: LLMClient,
   search: TavilySearchProvider,
-  db: CokiDatabase,
   profile: DepthProfile
 ) {
   return async function subagentsNode(ctx: PipelineContext): Promise<PipelineContext> {
@@ -36,7 +34,8 @@ export function createSubagentsNode(
             maxFetchCalls: Math.floor(profile.searchBudgetPerSubagent / 2),
             maxToolErrors: 3,
             timeoutMs: 120_000,
-          }
+          },
+          ctx.outputLanguage
         );
         return report;
       })
