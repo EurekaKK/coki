@@ -34,6 +34,7 @@ export class ResearchEngine {
       model: llmConfig.model,
       temperature: llmConfig.temperature,
       maxTokens: llmConfig.maxTokens,
+      thinking: llmConfig.thinking,
     });
     this.search = secrets.tavilyApiKey ? new TavilySearchProvider(secrets.tavilyApiKey) : null;
   }
@@ -137,6 +138,23 @@ export class ResearchEngine {
     } finally {
       this.activeRuns.delete(runId);
     }
+  }
+
+  /** Update API keys at runtime (called when the user saves new keys via Settings). */
+  updateSecrets(secrets: Partial<RuntimeSecrets>): void {
+    if (secrets.llmApiKey !== undefined) {
+      this.llm.updateApiKey(secrets.llmApiKey);
+    }
+    if (secrets.tavilyApiKey !== undefined) {
+      this.search = secrets.tavilyApiKey
+        ? new TavilySearchProvider(secrets.tavilyApiKey)
+        : null;
+    }
+  }
+
+  /** Update thinking mode at runtime. */
+  updateThinking(thinking: boolean): void {
+    this.llm.updateThinking(thinking);
   }
 
   cancelRun(runId: string): void {

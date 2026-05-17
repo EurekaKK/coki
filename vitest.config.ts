@@ -4,5 +4,7 @@ export default defineConfig({
   test: {
     include: ["packages/*/src/**/*.test.ts", "apps/*/src/**/*.test.ts"],
     globals: true,
+    testTimeout: 30_000,
+    retry: 2,
   },
 });

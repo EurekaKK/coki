@@ -2,30 +2,15 @@
  * Split Pipeline Node
  *
  * Splits the research plan dimensions into concrete subtasks.
- * For depth 2-3, uses an LLM with structured output to generate
- * keyword-rich subtask instructions. For depth 1, directly maps
- * dimensions to subtasks without an LLM call.
+ * For depth 2-3, uses an LLM to generate keyword-rich subtask instructions.
+ * For depth 1, directly maps dimensions to subtasks without an LLM call.
  */
 
-import { Output } from "ai";
-import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import type { LLMClient } from "../../llm/client";
 import type { DepthProfile } from "../../config/config";
 import type { PipelineContext, Subtask } from "../context";
-
-// ---------------------------------------------------------------------------
-// Schema
-// ---------------------------------------------------------------------------
-
-const SubtaskSchema = z.object({
-  subtasks: z.array(
-    z.object({
-      instruction: z.string(),
-      keywords: z.array(z.string()),
-    }),
-  ),
-});
+import { pipelineLogger } from "../../logger";
 
 // ---------------------------------------------------------------------------
 // Prompt
@@ -47,6 +32,8 @@ function buildSplitterPrompt(
     `  - "keywords": an array of 2-5 search keywords for this subtask`,
     ``,
     `Each dimension should map to one subtask. Do not merge or split dimensions.`,
+    ``,
+    `Output ONLY the JSON object, no other text.`,
   ].join("\n");
 }
 
@@ -62,46 +49,54 @@ function dimensionsToSubtasks(dimensions: string[]): Subtask[] {
   }));
 }
 
+function parseJsonFromText(text: string): unknown {
+  const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/) ?? text.match(/(\{[\s\S]*\})/);
+  if (jsonMatch?.[1]) {
+    return JSON.parse(jsonMatch[1].trim());
+  }
+  return JSON.parse(text);
+}
+
 // ---------------------------------------------------------------------------
 // Factory
 // ---------------------------------------------------------------------------
 
-/**
- * Create the split node runner.
- *
- * @param llm     - LLM client for generating subtasks
- * @param profile - Depth profile controlling splitter behavior
- */
 export function createSplitNode(
   llm: LLMClient,
   profile: DepthProfile,
 ) {
   return async function splitNode(ctx: PipelineContext): Promise<PipelineContext> {
+    const log = pipelineLogger(ctx.runId);
     const dimensions = ctx.plan?.dimensions;
     if (!dimensions || dimensions.length === 0) {
-      // No plan or empty dimensions -- fall back to empty subtasks
+      log.warn("split: no dimensions, returning empty subtasks");
       return { ...ctx, subtasks: [] };
     }
 
     // Depth 1: direct mapping, no LLM call
     if (!profile.useSplitter) {
+      log.info({ dimensionCount: dimensions.length }, "split: direct mapping (depth 1)");
       return {
         ...ctx,
         subtasks: dimensionsToSubtasks(dimensions),
       };
     }
 
-    // Depth 2-3: use LLM with structured output
+    // Depth 2-3: use LLM
+    log.info({ dimensionCount: dimensions.length }, "split: using LLM splitter");
     const prompt = buildSplitterPrompt(ctx.userQuery, dimensions);
+    log.debug({ prompt }, "split: generated prompt");
 
     try {
       const result = await llm.generate({
         role: "splitter",
         prompt,
-        output: Output.object({ schema: SubtaskSchema }),
+        runId: ctx.runId,
+        phase: "split",
       });
 
-      const parsed = result.output as { subtasks: Array<{ instruction: string; keywords: string[] }> };
+      const parsed = parseJsonFromText(result.text) as { subtasks: Array<{ instruction: string; keywords: string[] }> };
+      log.debug({ parsed }, "split: LLM result");
 
       const subtasks: Subtask[] = parsed.subtasks.map((s) => ({
         id: randomUUID(),
@@ -109,9 +104,10 @@ export function createSplitNode(
         keywords: s.keywords,
       }));
 
+      log.info({ subtaskCount: subtasks.length }, "split: done");
       return { ...ctx, subtasks };
-    } catch {
-      // JSON parse failure or LLM error -- fall back to dimension mapping
+    } catch (err) {
+      log.warn({ err }, "split: LLM failed, falling back to dimension mapping");
       return {
         ...ctx,
         subtasks: dimensionsToSubtasks(dimensions),

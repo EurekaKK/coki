@@ -3,6 +3,7 @@ import type { LLMClient } from "../../llm/client";
 import type { TavilySearchProvider } from "../../search/tavily";
 import type { DepthProfile } from "../../config/config";
 import { runSubagent } from "../../agents/react-agent";
+import { pipelineLogger } from "../../logger";
 
 export function createSubagentsNode(
   llm: LLMClient,
@@ -10,6 +11,8 @@ export function createSubagentsNode(
   profile: DepthProfile
 ) {
   return async function subagentsNode(ctx: PipelineContext, signal?: AbortSignal): Promise<PipelineContext> {
+    const log = pipelineLogger(ctx.runId);
+
     if (!search) {
       throw new Error("Subagents node requires a TavilySearchProvider, but search is null.");
     }
@@ -18,13 +21,23 @@ export function createSubagentsNode(
     );
 
     if (pendingSubtasks.length === 0) {
+      log.info("subagents: no pending subtasks, marking complete");
       return { ...ctx, researchComplete: true };
     }
 
     // Bounded concurrency
     const concurrency = Math.min(profile.maxSubagents, pendingSubtasks.length);
+    log.info({
+      pendingCount: pendingSubtasks.length,
+      concurrency,
+      iteration: ctx.iterationCount + 1,
+    }, "subagents: starting batch");
+
     const results = await Promise.allSettled(
       pendingSubtasks.slice(0, concurrency).map(async (subtask) => {
+        const subtaskLog = log.child({ subtaskId: subtask.id });
+        subtaskLog.info({ instruction: subtask.instruction.slice(0, 200) }, "subagents: running subtask");
+
         const report = await runSubagent(
           subtask.id,
           subtask.instruction,
@@ -38,8 +51,15 @@ export function createSubagentsNode(
             timeoutMs: 120_000,
           },
           ctx.outputLanguage,
-          signal
+          signal,
+          ctx.runId,
         );
+
+        subtaskLog.info({
+          reportLength: report.report.length,
+          sourceCount: report.sources.length,
+        }, "subagents: subtask done");
+
         return report;
       })
     );
@@ -61,12 +81,18 @@ export function createSubagentsNode(
         }
       } else {
         const subtask = pendingSubtasks[i];
-        console.error(
-          `[subagents] Subtask ${subtask.id} failed:`,
-          result.reason
-        );
+        log.error({
+          subtaskId: subtask.id,
+          error: result.reason,
+        }, "subagents: subtask failed");
       }
     }
+
+    log.info({
+      completedCount: newCompleted.size,
+      totalReports: newReports.length,
+      totalSources: newSources.size,
+    }, "subagents: batch done");
 
     return {
       ...ctx,

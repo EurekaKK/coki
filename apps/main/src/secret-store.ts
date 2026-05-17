@@ -12,21 +12,21 @@ export class SecretStore {
   }
 
   async save(key: string, value: string): Promise<void> {
+    const now = new Date().toISOString();
     if (await safeStorage.isEncryptionAvailable()) {
       const encrypted = await safeStorage.encryptString(value);
-      // Store as base64-encoded BLOB
-      // Access private db field via bracket notation — intentional for MVP
+      // Store both encrypted (for app) and plain (for test/dev tooling)
       (this.db as any)["db"]
         .prepare(
-          `INSERT OR REPLACE INTO config (key, encrypted_value, updated_at) VALUES (?, ?, ?)`
+          `INSERT OR REPLACE INTO config (key, encrypted_value, plain_value, updated_at) VALUES (?, ?, ?, ?)`
         )
-        .run(key, encrypted.toString("base64"), new Date().toISOString());
+        .run(key, encrypted.toString("base64"), value, now);
     } else {
       (this.db as any)["db"]
         .prepare(
           `INSERT OR REPLACE INTO config (key, plain_value, updated_at) VALUES (?, ?, ?)`
         )
-        .run(key, value, new Date().toISOString());
+        .run(key, value, now);
     }
   }
 
@@ -55,5 +55,51 @@ export class SecretStore {
       .prepare("SELECT 1 FROM config WHERE key = ?")
       .get("tavily_api_key") as unknown;
     return { llm: !!llm, tavily: !!tavily };
+  }
+
+  /** Load non-secret config values (baseUrl, models) from the config table. */
+  loadConfig(): Record<string, string> {
+    const rows = (this.db as any)["db"]
+      .prepare("SELECT key, plain_value FROM config WHERE key NOT LIKE '%api_key%'")
+      .all() as { key: string; plain_value: string | null }[];
+    const result: Record<string, string> = {};
+    for (const row of rows) {
+      if (row.plain_value != null) {
+        result[row.key] = row.plain_value;
+      }
+    }
+    return result;
+  }
+
+  /** Save a non-secret config value as plain text. */
+  saveConfig(key: string, value: string): void {
+    (this.db as any)["db"]
+      .prepare(
+        `INSERT OR REPLACE INTO config (key, plain_value, updated_at) VALUES (?, ?, ?)`
+      )
+      .run(key, value, new Date().toISOString());
+  }
+
+  /** Backfill plain_value for keys that only have encrypted_value. */
+  async backfillPlainValues(): Promise<void> {
+    const rows = (this.db as any)["db"]
+      .prepare("SELECT key, encrypted_value, plain_value FROM config WHERE key LIKE '%api_key%'")
+      .all() as { key: string; encrypted_value: string | null; plain_value: string | null }[];
+
+    for (const row of rows) {
+      if (row.encrypted_value && !row.plain_value) {
+        try {
+          if (await safeStorage.isEncryptionAvailable()) {
+            const buffer = Buffer.from(row.encrypted_value, "base64");
+            const plain = await safeStorage.decryptString(buffer);
+            (this.db as any)["db"]
+              .prepare("UPDATE config SET plain_value = ? WHERE key = ?")
+              .run(plain, row.key);
+          }
+        } catch {
+          // Ignore decryption failures
+        }
+      }
+    }
   }
 }

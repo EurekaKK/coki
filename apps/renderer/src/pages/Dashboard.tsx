@@ -1,10 +1,11 @@
 import { useEffect } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
 import { useAppStore } from "../stores/app-store";
 
 export function Dashboard() {
   const { runId } = useParams<{ runId: string }>();
+  const navigate = useNavigate();
   const { phase, progress, logs, isRunning, error } = useAppStore();
 
   useEffect(() => {
@@ -25,11 +26,12 @@ export function Dashboard() {
         useAppStore.getState().setIsRunning(false);
       } else if (e.type === "complete") {
         useAppStore.getState().setIsRunning(false);
+        navigate(`/report/${runId}`);
       }
     });
 
     return unsubscribe;
-  }, [runId]);
+  }, [runId, navigate]);
 
   return (
     <div className="p-8">

@@ -1,5 +1,16 @@
 import type { PipelineContext } from "./context";
 
+const PHASE_WEIGHTS: Record<string, number> = {
+  init: 2,
+  plan: 8,
+  split: 5,
+  subagents: 58,
+  reflection: 5,
+  synthesize: 12,
+  cite: 8,
+};
+const PHASE_ORDER = ["init", "plan", "split", "subagents", "reflection", "synthesize", "cite"];
+
 export type NodeId =
   | "init"
   | "plan"
@@ -28,6 +39,7 @@ export interface PipelineEvent {
   type: "progress" | "log" | "complete" | "error" | "cancelled";
   phase: string;
   message: string;
+  progress?: number;
   data?: unknown;
 }
 
@@ -103,11 +115,17 @@ export class Pipeline {
       }
 
       // Yield progress
-      yield {
-        type: "progress",
-        phase: currentNodeId,
-        message: `Running node: ${currentNodeId}`,
-      };
+      {
+        const idx = PHASE_ORDER.indexOf(currentNodeId);
+        const completed = PHASE_ORDER.slice(0, idx).reduce((s, p) => s + (PHASE_WEIGHTS[p] ?? 0), 0);
+        const current = (PHASE_WEIGHTS[currentNodeId] ?? 0) / 2;
+        yield {
+          type: "progress",
+          phase: currentNodeId,
+          message: `Running node: ${currentNodeId}`,
+          progress: Math.min(Math.round(completed + current), 99),
+        };
+      }
 
       // Run node
       try {

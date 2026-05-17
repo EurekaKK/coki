@@ -12,8 +12,8 @@ export function Report() {
   useEffect(() => {
     if (!runId) return;
     api.research.report(runId).then((data: unknown) => {
-      const run = data as { citedReport?: string };
-      setReport(run.citedReport ?? null);
+      const run = data as { cited_report?: string; citedReport?: string };
+      setReport(run.cited_report ?? run.citedReport ?? null);
       setLoading(false);
     });
   }, [runId]);

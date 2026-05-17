@@ -28,7 +28,6 @@ function createMainWindow(): void {
 
   if (process.env.NODE_ENV === "development") {
     mainWindow.loadURL("http://localhost:5173");
-    mainWindow.webContents.openDevTools();
   } else {
     mainWindow.loadFile(join(__dirname, "../../renderer/dist/index.html"));
   }
@@ -38,9 +37,32 @@ app.whenReady().then(async () => {
   const dbPath = join(app.getPath("userData"), "data.db");
   const db = new CokiDatabase(dbPath);
   const secretStore = new SecretStore(db);
+  await secretStore.backfillPlainValues();
   const secrets = await secretStore.load();
-  const config = new ConfigManager({});
-  const engine = new ResearchEngine(db, {}, secrets);
+  const persistedConfig = secretStore.loadConfig();
+
+  // Build config overrides from persisted values
+  const configOverrides: Record<string, unknown> = {};
+  if (persistedConfig["llm.baseUrl"] || persistedConfig["llm.model"]) {
+    configOverrides.llm = {
+      ...(persistedConfig["llm.baseUrl"] ? { baseUrl: persistedConfig["llm.baseUrl"] } : {}),
+      ...(persistedConfig["llm.model"] ? { model: persistedConfig["llm.model"] } : {}),
+    };
+  }
+  const roleNames = ["planner", "splitter", "subagent", "evaluator", "reflection", "synthesis", "citation"];
+  const rolesOverride: Record<string, { model: string }> = {};
+  for (const role of roleNames) {
+    const model = persistedConfig[`role.${role}.model`];
+    if (model) {
+      rolesOverride[role] = { model };
+    }
+  }
+  if (Object.keys(rolesOverride).length > 0) {
+    configOverrides.roles = rolesOverride;
+  }
+
+  const config = new ConfigManager(configOverrides as any);
+  const engine = new ResearchEngine(db, configOverrides as any, secrets);
 
   registerIPCHandlers(engine, db, config, secretStore, () => mainWindow);
   createMainWindow();

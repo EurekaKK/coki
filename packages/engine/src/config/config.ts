@@ -15,6 +15,7 @@ export interface LLMConfig {
   model: string;
   temperature: number;
   maxTokens: number;
+  thinking: boolean;
 }
 
 export interface RoleConfig {
@@ -70,11 +71,12 @@ export interface DepthProfile {
 // ---------------------------------------------------------------------------
 
 const DEFAULT_LLM: LLMConfig = {
-  baseUrl: "https://api.openai.com/v1",
+  baseUrl: "",
   apiKey: null,
-  model: "gpt-4o-mini",
+  model: "",
   temperature: 0.7,
   maxTokens: 4096,
+  thinking: false,
 };
 
 const DEFAULT_RESEARCH: ResearchConfig = {
@@ -96,13 +98,13 @@ const DEFAULT_TAVILY: TavilyConfig = {
 
 // 7 roles with sensible defaults
 const DEFAULT_ROLES: Record<string, RoleConfig> = {
-  planner:    { model: "gpt-4o-mini", temperature: 0.4 },
-  splitter:   { model: "gpt-4o-mini", temperature: 0.3 },
-  subagent:   { model: "gpt-4o-mini", temperature: 0.7 },
-  evaluator:  { model: "gpt-4o-mini", temperature: 0.2 },
-  reflection: { model: "gpt-4o-mini", temperature: 0.5 },
-  synthesis:  { model: "gpt-4o-mini", temperature: 0.5 },
-  citation:   { model: "gpt-4o-mini", temperature: 0.1 },
+  planner:    { model: "", temperature: 0.4 },
+  splitter:   { model: "", temperature: 0.3 },
+  subagent:   { model: "", temperature: 0.7 },
+  evaluator:  { model: "", temperature: 0.2 },
+  reflection: { model: "", temperature: 0.5 },
+  synthesis:  { model: "", temperature: 0.5 },
+  citation:   { model: "", temperature: 0.1 },
 };
 
 // 3 depth profiles: 1 = quick, 2 = balanced, 3 = deep
@@ -228,5 +230,23 @@ export class ConfigManager {
       throw new Error(`Invalid depth: ${depth}. Must be 1, 2, or 3.`);
     }
     return profile;
+  }
+
+  /** Apply a partial config patch at runtime (mutates in place). */
+  updateConfig(patch: ConfigOverrides): void {
+    if (patch.llm) {
+      Object.assign(this.config.llm, patch.llm);
+    }
+    if (patch.research) {
+      Object.assign(this.config.research, patch.research);
+    }
+    if (patch.roles) {
+      for (const [name, rolePatch] of Object.entries(patch.roles)) {
+        if (!this.config.roles[name]) {
+          this.config.roles[name] = {};
+        }
+        Object.assign(this.config.roles[name], rolePatch);
+      }
+    }
   }
 }

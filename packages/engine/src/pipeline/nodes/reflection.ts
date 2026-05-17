@@ -9,26 +9,35 @@ import type { PipelineContext } from "../context";
 import type { LLMClient } from "../../llm/client";
 import { REFLECTION_PROMPT } from "../../agents/prompts";
 import { randomUUID } from "node:crypto";
-import { Output } from "ai";
-import { z } from "zod";
+import { pipelineLogger } from "../../logger";
 
 // ---------------------------------------------------------------------------
-// Schema
+// Types
 // ---------------------------------------------------------------------------
 
-const ReflectionResultSchema = z.object({
-  scores: z.object({
-    comprehensiveness: z.number(),
-    insight: z.number(),
-    evidence: z.number(),
-    instruction_following: z.number(),
-  }),
-  overall_score: z.number(),
-  gaps: z.array(z.string()),
-  recommendation: z.enum(["proceed", "refine", "sufficient"]),
-});
+interface ReflectionResult {
+  scores: {
+    comprehensiveness: number;
+    insight: number;
+    evidence: number;
+    instruction_following: number;
+  };
+  overall_score: number;
+  gaps: string[];
+  recommendation: "proceed" | "refine" | "sufficient";
+}
 
-type ReflectionResult = z.infer<typeof ReflectionResultSchema>;
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function parseJsonFromText(text: string): unknown {
+  const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/) ?? text.match(/(\{[\s\S]*\})/);
+  if (jsonMatch?.[1]) {
+    return JSON.parse(jsonMatch[1].trim());
+  }
+  return JSON.parse(text);
+}
 
 // ---------------------------------------------------------------------------
 // Factory
@@ -38,9 +47,17 @@ export function createReflectionNode(llm: LLMClient) {
   return async function reflectionNode(
     ctx: PipelineContext,
   ): Promise<PipelineContext> {
+    const log = pipelineLogger(ctx.runId);
+
     if (ctx.iterationCount >= ctx.maxIterations) {
+      log.info({ iteration: ctx.iterationCount }, "reflection: max iterations reached, marking complete");
       return { ...ctx, researchComplete: true };
     }
+
+    log.info({
+      iteration: ctx.iterationCount,
+      reportCount: ctx.subagentReports.length,
+    }, "reflection: evaluating research quality");
 
     const reportsSummary = ctx.subagentReports
       .map((r) => `Subtask ${r.subtaskId}:\n${r.report.slice(0, 500)}...`)
@@ -50,22 +67,33 @@ export function createReflectionNode(llm: LLMClient) {
       .replace("{reports_summary}", reportsSummary)
       .replace("{query}", ctx.userQuery);
 
+    log.debug({ prompt, reportsSummary }, "reflection: full prompt");
+
     try {
       const result = await llm.generate({
         role: "reflection",
-        system:
-          "You are a research quality evaluator. Output valid JSON only.",
+        system: "You are a research quality evaluator. Output valid JSON only.",
         prompt,
-        output: Output.object({ schema: ReflectionResultSchema }),
+        runId: ctx.runId,
+        phase: "reflection",
       });
 
-      const reflection = result.output as ReflectionResult;
+      const reflection = parseJsonFromText(result.text) as ReflectionResult;
+      log.debug({ reflection }, "reflection: full LLM result");
       const qualityScore = reflection.overall_score / 10;
+
+      log.info({
+        scores: reflection.scores,
+        overallScore: reflection.overall_score,
+        recommendation: reflection.recommendation,
+        gaps: reflection.gaps,
+      }, "reflection: evaluation result");
 
       if (
         qualityScore >= ctx.qualityThreshold ||
         reflection.recommendation === "sufficient"
       ) {
+        log.info({ qualityScore }, "reflection: quality sufficient, marking complete");
         return { ...ctx, qualityScore, researchComplete: true };
       }
 
@@ -80,6 +108,7 @@ export function createReflectionNode(llm: LLMClient) {
           keywords: gap.split(/[，,、\s]+/).filter(Boolean),
         }));
 
+        log.info({ newSubtaskCount: newSubtasks.length }, "reflection: adding gap subtasks");
         return {
           ...ctx,
           qualityScore,
@@ -89,8 +118,7 @@ export function createReflectionNode(llm: LLMClient) {
 
       return { ...ctx, qualityScore, researchComplete: true };
     } catch (err) {
-      // If reflection fails, proceed to synthesis
-      console.error("[reflection] Evaluation failed, proceeding to synthesis:", err);
+      log.error({ err }, "reflection: evaluation failed, proceeding to synthesis");
       return { ...ctx, researchComplete: true };
     }
   };
