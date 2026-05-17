@@ -26,6 +26,8 @@ function makeCtx(overrides: Partial<PipelineContext> = {}): PipelineContext {
     researchComplete: false,
     report: null,
     citedReport: null,
+    evidenceSpans: [],
+    claims: [],
     ...overrides,
   };
 }
@@ -264,5 +266,51 @@ describe("Pipeline", () => {
     ];
 
     expect(() => new Pipeline({ nodes, transitions })).toThrow();
+  });
+
+  it("supports startFrom parameter to skip initial nodes", async () => {
+    const order: string[] = [];
+    const nodes: PipelineNode[] = [
+      {
+        id: "init",
+        run: async (ctx) => {
+          order.push("init");
+          return ctx;
+        },
+      },
+      {
+        id: "plan",
+        run: async (ctx) => {
+          order.push("plan");
+          return ctx;
+        },
+      },
+      {
+        id: "synthesize",
+        run: async (ctx) => {
+          order.push("synthesize");
+          return { ...ctx, report: "done" };
+        },
+      },
+    ];
+
+    const transitions: Transition[] = [
+      { from: "init", decide: () => "plan" },
+      { from: "plan", decide: () => "synthesize" },
+      { from: "synthesize", decide: () => "end" },
+    ];
+
+    const pipeline = new Pipeline({ nodes, transitions });
+    const events: PipelineEvent[] = [];
+    for await (const event of pipeline.run(makeCtx(), undefined, "plan")) {
+      events.push(event);
+    }
+
+    // init should be skipped
+    expect(order).toEqual(["plan", "synthesize"]);
+    expect(order).not.toContain("init");
+
+    const complete = events.find((e) => e.type === "complete");
+    expect(complete).toBeDefined();
   });
 });

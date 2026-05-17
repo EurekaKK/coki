@@ -24,6 +24,8 @@ function makeCtx(report: string, runId: string): PipelineContext {
     researchComplete: false,
     report,
     citedReport: null,
+    evidenceSpans: [],
+    claims: [],
   };
 }
 

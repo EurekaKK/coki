@@ -43,10 +43,11 @@ app.whenReady().then(async () => {
 
   // Build config overrides from persisted values
   const configOverrides: Record<string, unknown> = {};
-  if (persistedConfig["llm.baseUrl"] || persistedConfig["llm.model"]) {
+  if (persistedConfig["llm.baseUrl"] || persistedConfig["llm.model"] || persistedConfig["llm.thinking"]) {
     configOverrides.llm = {
       ...(persistedConfig["llm.baseUrl"] ? { baseUrl: persistedConfig["llm.baseUrl"] } : {}),
       ...(persistedConfig["llm.model"] ? { model: persistedConfig["llm.model"] } : {}),
+      ...(persistedConfig["llm.thinking"] !== undefined ? { thinking: persistedConfig["llm.thinking"] === "true" } : {}),
     };
   }
   const roleNames = ["planner", "splitter", "subagent", "evaluator", "reflection", "synthesis", "citation"];

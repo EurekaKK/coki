@@ -198,4 +198,148 @@ describe("CokiDatabase", () => {
   it("returns null for non-existent run", () => {
     expect(db.getRun("non-existent-id")).toBeNull();
   });
+
+  it("creates run with explicit id", () => {
+    const explicitId = "custom-run-id-123";
+    const id = db.createRun("test", 2, explicitId);
+    expect(id).toBe(explicitId);
+    const run = db.getRun(explicitId);
+    expect(run).not.toBeNull();
+    expect(run!.id).toBe(explicitId);
+  });
+
+  it("inserts and retrieves evidence spans", () => {
+    const runId = db.createRun("test", 2);
+
+    db.insertEvidenceSpan({
+      id: "span-1",
+      run_id: runId,
+      source_id: null,
+      subtask_id: "st-1",
+      quote: "Quantum computing uses qubits",
+      url: "https://example.com",
+      page_title: "Example",
+      start_offset: 0,
+      end_offset: 30,
+    });
+
+    db.insertEvidenceSpan({
+      id: "span-2",
+      run_id: runId,
+      source_id: null,
+      subtask_id: "st-2",
+      quote: "Machine learning requires data",
+      url: "https://ml.com",
+    });
+
+    const spans = db.getEvidenceSpansByRun(runId);
+    expect(spans).toHaveLength(2);
+    expect(spans[0].quote).toBe("Quantum computing uses qubits");
+    expect(spans[0].url).toBe("https://example.com");
+    expect(spans[1].subtask_id).toBe("st-2");
+  });
+
+  it("inserts and retrieves claims", () => {
+    const runId = db.createRun("test", 2);
+
+    db.insertClaim({
+      id: "claim-1",
+      run_id: runId,
+      claim_text: "Quantum computing can solve certain problems exponentially faster",
+      section_heading: "Findings",
+      claim_index: 0,
+    });
+
+    db.insertClaim({
+      id: "claim-2",
+      run_id: runId,
+      claim_text: "Qubits can exist in superposition",
+      section_heading: "Findings",
+      claim_index: 1,
+    });
+
+    const claims = db.getClaimsByRun(runId);
+    expect(claims).toHaveLength(2);
+    expect(claims[0].claim_text).toBe("Quantum computing can solve certain problems exponentially faster");
+    expect(claims[0].section_heading).toBe("Findings");
+    expect(claims[0].claim_index).toBe(0);
+    expect(claims[1].claim_index).toBe(1);
+  });
+
+  it("inserts and retrieves claim-evidence links", () => {
+    const runId = db.createRun("test", 2);
+
+    db.insertEvidenceSpan({
+      id: "span-1",
+      run_id: runId,
+      subtask_id: "st-1",
+      quote: "Qubits can be in superposition",
+      url: "https://a.com",
+    });
+
+    db.insertClaim({
+      id: "claim-1",
+      run_id: runId,
+      claim_text: "Qubits can exist in superposition",
+      claim_index: 0,
+    });
+
+    db.insertClaimEvidence({
+      id: "link-1",
+      claim_id: "claim-1",
+      evidence_span_id: "span-1",
+      relevance_score: 0.85,
+    });
+
+    const links = db.getClaimEvidenceByRun(runId);
+    expect(links).toHaveLength(1);
+    expect(links[0].claim_id).toBe("claim-1");
+    expect(links[0].evidence_span_id).toBe("span-1");
+    expect(links[0].relevance_score).toBe(0.85);
+  });
+
+  it("cascades delete for evidence spans and claims", () => {
+    const runId = db.createRun("test", 2);
+
+    db.insertEvidenceSpan({
+      id: "span-1",
+      run_id: runId,
+      subtask_id: "st-1",
+      quote: "test evidence",
+      url: "https://a.com",
+    });
+
+    db.insertClaim({
+      id: "claim-1",
+      run_id: runId,
+      claim_text: "test claim",
+      claim_index: 0,
+    });
+
+    db.insertClaimEvidence({
+      id: "link-1",
+      claim_id: "claim-1",
+      evidence_span_id: "span-1",
+      relevance_score: 0.5,
+    });
+
+    expect(db.getEvidenceSpansByRun(runId)).toHaveLength(1);
+    expect(db.getClaimsByRun(runId)).toHaveLength(1);
+    expect(db.getClaimEvidenceByRun(runId)).toHaveLength(1);
+
+    db.deleteRun(runId);
+
+    expect(db.getEvidenceSpansByRun(runId)).toHaveLength(0);
+    expect(db.getClaimsByRun(runId)).toHaveLength(0);
+    expect(db.getClaimEvidenceByRun(runId)).toHaveLength(0);
+  });
+
+  it("retrieves trace logs by run", () => {
+    const runId = db.createRun("test", 2);
+
+    // Trace logs are written by the pino logger, not directly by DB methods.
+    // But we can verify getTraceLogsByRun returns empty for a fresh run.
+    const logs = db.getTraceLogsByRun(runId);
+    expect(logs).toEqual([]);
+  });
 });

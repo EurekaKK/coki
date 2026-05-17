@@ -9,7 +9,7 @@
  */
 
 import Anthropic from "@anthropic-ai/sdk";
-import { llmLogger } from "../logger";
+import { llmLogger, logger } from "../logger";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -22,6 +22,7 @@ export interface LLMClientConfig {
   temperature: number;
   maxTokens: number;
   thinking: boolean;
+  roleModels?: Record<string, string>;
 }
 
 export interface LLMCallRecord {
@@ -30,6 +31,8 @@ export interface LLMCallRecord {
   inputTokens: number;
   outputTokens: number;
   latencyMs: number;
+  runId?: string;
+  phase?: string;
 }
 
 export type OnCallCallback = (record: LLMCallRecord) => void;
@@ -92,6 +95,7 @@ export class LLMClient {
   private readonly defaultTemperature: number;
   private readonly defaultMaxTokens: number;
   private defaultThinking: boolean;
+  private roleModels: Record<string, string>;
   private readonly callbacks: OnCallCallback[] = [];
 
   constructor(config: LLMClientConfig) {
@@ -107,6 +111,7 @@ export class LLMClient {
     this.defaultTemperature = config.temperature;
     this.defaultMaxTokens = config.maxTokens;
     this.defaultThinking = config.thinking;
+    this.roleModels = config.roleModels ?? {};
   }
 
   /** Recreate the client with a new API key (used when the user updates their key at runtime). */
@@ -123,6 +128,13 @@ export class LLMClient {
   /** Update thinking mode at runtime. */
   updateThinking(thinking: boolean): void {
     this.defaultThinking = thinking;
+    logger.info({ thinking }, "llm: thinking mode updated");
+  }
+
+  /** Update role-specific model mappings at runtime. */
+  updateRoleModels(roleModels: Record<string, string>): void {
+    this.roleModels = roleModels;
+    logger.info({ roleModels }, "llm: role models updated");
   }
 
   /** Register a callback that fires after every LLM call with usage stats. */
@@ -132,8 +144,8 @@ export class LLMClient {
 
   /** Call Anthropic messages.create with call tracking. */
   async generate(opts: GenerateOptions): Promise<GenerateResult> {
-    const model = opts.model ?? this.defaultModel;
     const role = opts.role ?? "default";
+    const model = opts.model ?? this.roleModels[role] ?? this.defaultModel;
     const startTime = Date.now();
     let inputTokens = 0;
     let outputTokens = 0;
@@ -165,7 +177,7 @@ export class LLMClient {
       hasTools: !!opts.tools?.length,
     }, "llm.generate request");
 
-    log?.info({ role, model }, "llm.generate start");
+    log?.info({ role, model, thinking: this.defaultThinking }, "llm.generate start");
 
     try {
       const params: Anthropic.MessageCreateParams & { thinking?: { type: string } } = {
@@ -242,14 +254,16 @@ export class LLMClient {
         inputTokens,
         outputTokens,
         latencyMs,
+        runId: opts.runId,
+        phase: opts.phase,
       });
     }
   }
 
   /** Call Anthropic streaming with call tracking. Returns the full text. */
   async stream(opts: StreamOptions): Promise<string> {
-    const model = opts.model ?? this.defaultModel;
     const role = opts.role ?? "default";
+    const model = opts.model ?? this.roleModels[role] ?? this.defaultModel;
     const startTime = Date.now();
     let inputTokens = 0;
     let outputTokens = 0;
@@ -321,6 +335,8 @@ export class LLMClient {
         inputTokens,
         outputTokens,
         latencyMs,
+        runId: opts.runId,
+        phase: opts.phase,
       });
     }
   }

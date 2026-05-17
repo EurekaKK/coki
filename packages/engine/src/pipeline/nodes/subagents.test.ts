@@ -26,6 +26,8 @@ function makeCtx(subtasks: Subtask[]): PipelineContext {
     researchComplete: false,
     report: null,
     citedReport: null,
+    evidenceSpans: [],
+    claims: [],
   };
 }
 

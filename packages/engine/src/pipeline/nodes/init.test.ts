@@ -22,6 +22,7 @@ function makeCtx(overrides: Partial<PipelineContext> = {}): PipelineContext {
         subtaskId: "st-1",
         report: "History report",
         sources: [],
+        evidenceSpans: [],
       },
     ],
     sources: new Map([["s1", {
@@ -38,6 +39,8 @@ function makeCtx(overrides: Partial<PipelineContext> = {}): PipelineContext {
     researchComplete: true,
     report: "Final report",
     citedReport: "Cited report",
+    evidenceSpans: [],
+    claims: [],
     ...overrides,
   };
 }

@@ -24,6 +24,12 @@ function isElectron(): boolean {
 function createLogger(): pino.Logger {
   const level = process.env.LOG_LEVEL ?? "info";
 
+  const timestampFn = () => {
+    const now = new Date();
+    const pad = (n: number, len = 2) => String(n).padStart(len, "0");
+    return `,"time":"${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}.${pad(now.getMilliseconds(), 3)}"`;
+  };
+
   if (isElectron()) {
     // In Electron, write to a log file so it's always captureable
     const logDir = join(
@@ -32,11 +38,11 @@ function createLogger(): pino.Logger {
     );
     mkdirSync(logDir, { recursive: true });
     const logPath = join(logDir, "coki.log");
-    return pino({ level }, pino.destination(logPath));
+    return pino({ level, timestamp: timestampFn }, pino.destination(logPath));
   }
 
   // In Node.js (tests, CLI), write to stdout
-  return pino({ level });
+  return pino({ level, timestamp: timestampFn });
 }
 
 export const logger = createLogger();

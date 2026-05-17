@@ -8,10 +8,30 @@ export interface Subtask {
   keywords: string[];
 }
 
+export interface EvidenceSpan {
+  id: string;
+  sourceId?: string;
+  subtaskId: string;
+  quote: string;
+  url?: string;
+  pageTitle?: string;
+  startOffset?: number;
+  endOffset?: number;
+}
+
+export interface Claim {
+  id: string;
+  claimText: string;
+  sectionHeading?: string;
+  claimIndex?: number;
+  evidenceLinks: Array<{ evidenceSpanId: string; relevanceScore?: number }>;
+}
+
 export interface SubagentReport {
   subtaskId: string;
   report: string;
   sources: SourceRecord[];
+  evidenceSpans: EvidenceSpan[];
 }
 
 export interface SourceRecord {
@@ -47,6 +67,8 @@ export interface PipelineContext {
   researchComplete: boolean;
   report: string | null;
   citedReport: string | null;
+  evidenceSpans: EvidenceSpan[];
+  claims: Claim[];
   done?: boolean;
   error?: string;
 }

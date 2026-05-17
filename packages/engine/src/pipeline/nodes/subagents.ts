@@ -67,6 +67,7 @@ export function createSubagentsNode(
     const newReports = [...ctx.subagentReports];
     const newSources = new Map(ctx.sources);
     const newCompleted = new Set(ctx.completedSubtasks);
+    const newEvidenceSpans = [...(ctx.evidenceSpans ?? [])];
 
     for (let i = 0; i < results.length; i++) {
       const result = results[i];
@@ -78,6 +79,9 @@ export function createSubagentsNode(
           if (!newSources.has(source.url ?? source.id)) {
             newSources.set(source.url ?? source.id, source);
           }
+        }
+        if (report.evidenceSpans) {
+          newEvidenceSpans.push(...report.evidenceSpans);
         }
       } else {
         const subtask = pendingSubtasks[i];
@@ -99,6 +103,7 @@ export function createSubagentsNode(
       subagentReports: newReports,
       sources: newSources,
       completedSubtasks: newCompleted,
+      evidenceSpans: newEvidenceSpans,
       iterationCount: ctx.iterationCount + 1,
     };
   };

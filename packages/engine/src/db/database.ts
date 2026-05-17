@@ -51,6 +51,47 @@ export interface LLMCallRow {
   created_at: string;
 }
 
+export interface TraceLogRow {
+  id: number;
+  run_id: string;
+  phase: string | null;
+  event_type: string | null;
+  message: string | null;
+  details: string | null;
+  level: string;
+  created_at: string;
+}
+
+export interface EvidenceSpanRow {
+  id: string;
+  run_id: string;
+  source_id: string | null;
+  subtask_id: string | null;
+  quote: string;
+  url: string | null;
+  page_title: string | null;
+  start_offset: number | null;
+  end_offset: number | null;
+  created_at: string;
+}
+
+export interface ClaimRow {
+  id: string;
+  run_id: string;
+  claim_text: string;
+  section_heading: string | null;
+  claim_index: number | null;
+  created_at: string;
+}
+
+export interface ClaimEvidenceRow {
+  id: string;
+  claim_id: string;
+  evidence_span_id: string;
+  relevance_score: number | null;
+  created_at: string;
+}
+
 // ---------------------------------------------------------------------------
 // CokiDatabase
 // ---------------------------------------------------------------------------
@@ -130,16 +171,16 @@ export class CokiDatabase {
   // Runs
   // -------------------------------------------------------------------------
 
-  createRun(query: string, depth: number): string {
+  createRun(query: string, depth: number, id?: string): string {
     this.checkNotClosed();
-    const id = randomUUID();
+    const runId = id ?? randomUUID();
     const now = new Date().toISOString();
     this.db
       .prepare(
         "INSERT INTO runs (id, user_query, depth, status, created_at) VALUES (?, ?, ?, 'pending', ?)",
       )
-      .run(id, query, depth, now);
-    return id;
+      .run(runId, query, depth, now);
+    return runId;
   }
 
   getRun(id: string): RunRow | null {
@@ -292,6 +333,106 @@ export class CokiDatabase {
     return this.db
       .prepare("SELECT * FROM llm_calls WHERE run_id = ? ORDER BY id")
       .all(runId) as LLMCallRow[];
+  }
+
+  // -------------------------------------------------------------------------
+  // Trace Logs
+  // -------------------------------------------------------------------------
+
+  getTraceLogsByRun(runId: string): TraceLogRow[] {
+    this.checkNotClosed();
+    return this.db
+      .prepare("SELECT * FROM trace_logs WHERE run_id = ? ORDER BY created_at")
+      .all(runId) as TraceLogRow[];
+  }
+
+  // -------------------------------------------------------------------------
+  // Evidence Spans
+  // -------------------------------------------------------------------------
+
+  insertEvidenceSpan(span: Omit<EvidenceSpanRow, "created_at">): void {
+    this.checkNotClosed();
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO evidence_spans
+          (id, run_id, source_id, subtask_id, quote, url, page_title, start_offset, end_offset, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        span.id,
+        span.run_id,
+        span.source_id ?? null,
+        span.subtask_id ?? null,
+        span.quote,
+        span.url ?? null,
+        span.page_title ?? null,
+        span.start_offset ?? null,
+        span.end_offset ?? null,
+        now,
+      );
+  }
+
+  getEvidenceSpansByRun(runId: string): EvidenceSpanRow[] {
+    this.checkNotClosed();
+    return this.db
+      .prepare("SELECT * FROM evidence_spans WHERE run_id = ? ORDER BY created_at")
+      .all(runId) as EvidenceSpanRow[];
+  }
+
+  // -------------------------------------------------------------------------
+  // Claims
+  // -------------------------------------------------------------------------
+
+  insertClaim(claim: Omit<ClaimRow, "created_at">): void {
+    this.checkNotClosed();
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO claims (id, run_id, claim_text, section_heading, claim_index, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        claim.id,
+        claim.run_id,
+        claim.claim_text,
+        claim.section_heading ?? null,
+        claim.claim_index ?? null,
+        now,
+      );
+  }
+
+  getClaimsByRun(runId: string): ClaimRow[] {
+    this.checkNotClosed();
+    return this.db
+      .prepare("SELECT * FROM claims WHERE run_id = ? ORDER BY claim_index")
+      .all(runId) as ClaimRow[];
+  }
+
+  // -------------------------------------------------------------------------
+  // Claim-Evidence Links
+  // -------------------------------------------------------------------------
+
+  insertClaimEvidence(link: Omit<ClaimEvidenceRow, "created_at">): void {
+    this.checkNotClosed();
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO claim_evidence (id, claim_id, evidence_span_id, relevance_score, created_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(link.id, link.claim_id, link.evidence_span_id, link.relevance_score ?? null, now);
+  }
+
+  getClaimEvidenceByRun(runId: string): ClaimEvidenceRow[] {
+    this.checkNotClosed();
+    return this.db
+      .prepare(
+        `SELECT ce.* FROM claim_evidence ce
+         JOIN claims c ON ce.claim_id = c.id
+         WHERE c.run_id = ? ORDER BY ce.created_at`,
+      )
+      .all(runId) as ClaimEvidenceRow[];
   }
 
   // -------------------------------------------------------------------------

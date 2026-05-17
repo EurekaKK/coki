@@ -12,4 +12,6 @@ export type {
   SourceRecord,
   ResearchPlan,
   PipelineContext,
+  EvidenceSpan,
+  Claim,
 } from "./context";

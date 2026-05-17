@@ -13,6 +13,14 @@ const api = {
       ipcRenderer.invoke("research:report", runId),
     delete: (runId: string) =>
       ipcRenderer.invoke("research:delete", runId),
+    llmCalls: (runId: string) =>
+      ipcRenderer.invoke("research:llmCalls", runId),
+    costSummary: (runId: string) =>
+      ipcRenderer.invoke("research:costSummary", runId),
+    timeline: (runId: string) =>
+      ipcRenderer.invoke("research:timeline", runId),
+    rerun: (runId: string, mode: "full" | "reuse-sources" | "reuse-plan") =>
+      ipcRenderer.invoke("research:rerun", runId, mode),
   },
   config: {
     get: () => ipcRenderer.invoke("config:get"),

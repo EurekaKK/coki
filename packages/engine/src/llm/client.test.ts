@@ -49,4 +49,25 @@ describe("LLMClient", () => {
     expect(last.role).toBe("test-callback");
     expect(last.latencyMs).toBeGreaterThan(0);
   });
+
+  it("onCall callback includes runId and phase when provided", async () => {
+    const records: Array<{ role: string; runId?: string; phase?: string }> = [];
+    const cb = (record: { role: string; runId?: string; phase?: string }) => {
+      records.push(record);
+    };
+    client.onCall(cb);
+
+    await client.generate({
+      role: "test-runid",
+      prompt: "Say yes",
+      runId: "test-run-123",
+      phase: "test-phase",
+    });
+
+    expect(records.length).toBeGreaterThanOrEqual(1);
+    const last = records[records.length - 1];
+    expect(last.role).toBe("test-runid");
+    expect(last.runId).toBe("test-run-123");
+    expect(last.phase).toBe("test-phase");
+  });
 });

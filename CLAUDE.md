@@ -14,10 +14,13 @@ pnpm monorepo with 5 packages:
 
 ## Key patterns
 
-- **Pipeline**: 7-phase async generator (init → plan → split → subagents → reflection → synthesize → cite). Each node is a pure async function taking/returning `PipelineContext`.
-- **LLM**: Uses `@ai-sdk/openai` v3 with `provider.chat()` (Chat Completions API, not Responses API). Compatible with any OpenAI-compatible endpoint.
-- **Config**: `ConfigManager` deep-merges user overrides onto defaults. API keys stored encrypted in SQLite via Electron `safeStorage`.
+- **Pipeline**: 8-phase async generator (init → plan → split → subagents → reflection → synthesize → extract-claims → cite). Each node is a pure async function taking/returning `PipelineContext`.
+- **LLM**: Uses `@anthropic-ai/sdk` with `messages.create()`. Compatible with Claude, MiMo, and other Anthropic-compatible providers via `baseUrl` + `api-key` header. Supports per-role model overrides (`roleModels` map resolved as `opts.model ?? roleModels[role] ?? defaultModel`).
+- **Config**: `ConfigManager` deep-merges user overrides onto defaults. API keys stored encrypted in SQLite via Electron `safeStorage`. Thinking mode (`llm.thinking`) and per-role models persisted via `secretStore.saveConfig()`.
 - **IPC**: Main↔Renderer communication via `ipcMain.handle` / `contextBridge.exposeInMainWorld`. Event streaming via `webContents.send` + `on` listeners.
+- **Logging**: Pino logger with custom timestamp format (`YYYY-MM-DD HH:mm:ss.SSS`). Logs written to `~/Library/Logs/@coki/main/coki.log`. Timeline UI reads from this log file (not DB).
+- **Citation system**: `addCitations()` converts `[src: url]` → `[^N]` footnotes. `verifyCitations()` checks footnotes against evidence spans (observability-only, logs warn for unverified refs). Evidence spans and claims persisted to DB via cite node.
+- **Concurrency**: `p-limit` used in extract-claims node (concurrency=3) for parallel section processing.
 
 ## Commands
 
@@ -33,7 +36,17 @@ Main process uses esbuild (bundles to single CJS file). Renderer uses Vite.
 
 ## Conventions
 
-- TypeScript strict mode, no `any` casts except where AI SDK types require it.
+- TypeScript strict mode, no `any` casts except where Anthropic SDK types require it.
 - snake_case for SQLite columns, camelCase for TypeScript. IPC boundary may need explicit mapping.
 - Engine package must remain Electron-free (testable in Node.js).
 - Pipeline progress events include a numeric `progress` field (0-99) computed from `PHASE_WEIGHTS`.
+
+## Phase 1B additions (trust & polish)
+
+- **LLM call tracking**: `LLMClient.onCall()` callback persists records to `llm_calls` table with `runId`, `role`, `model`, token counts, latency.
+- **Evidence spans**: Subagent reports produce paragraph-level `EvidenceSpan` objects (~500 chars) during `tavily_extract`. Collected into context and persisted by cite node.
+- **Claims extraction**: `extract-claims` node parses report sections, uses LLM to extract factual claims, matches to evidence via Jaccard token-overlap heuristic.
+- **Cost panel**: IPC handler `research:costSummary` aggregates tokens/latency by phase from `llm_calls` table.
+- **Timeline**: IPC handler `research:timeline` reads pino log file (not DB), filters by `runId`, returns structured entries.
+- **Re-run modes**: `research:rerun(runId, mode)` supports `"full"`, `"reuse-sources"`, `"reuse-plan"` via mini-pipelines in `engine.ts`.
+- **Per-role models**: Settings UI allows overriding model per pipeline role (planner, splitter, subagent, evaluator, reflection, synthesis, citation).

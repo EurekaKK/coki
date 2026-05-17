@@ -9,11 +9,13 @@ const mockReports: SubagentReport[] = [
     subtaskId: "st-1",
     report: "量子计算利用量子比特进行计算。量子比特可以同时处于0和1的叠加状态。[src: https://example.com/qc1]",
     sources: [],
+    evidenceSpans: [],
   },
   {
     subtaskId: "st-2",
     report: "量子计算在密码学、药物发现和优化问题中有广泛应用。[src: https://example.com/qc2]",
     sources: [],
+    evidenceSpans: [],
   },
 ];
 
@@ -35,6 +37,8 @@ function makeCtx(reports: SubagentReport[]): PipelineContext {
     researchComplete: false,
     report: null,
     citedReport: null,
+    evidenceSpans: [],
+    claims: [],
   };
 }
 

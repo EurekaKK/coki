@@ -5,6 +5,7 @@ import { Dashboard } from "./pages/Dashboard";
 import { Report } from "./pages/Report";
 import { History } from "./pages/History";
 import { Settings } from "./pages/Settings";
+import { Timeline } from "./components/Timeline";
 
 export function App() {
   return (
@@ -17,6 +18,7 @@ export function App() {
             <Route path="/dashboard/:runId" element={<Dashboard />} />
             <Route path="/report/:runId" element={<Report />} />
             <Route path="/history" element={<History />} />
+            <Route path="/timeline/:runId" element={<Timeline />} />
             <Route path="/settings" element={<Settings />} />
           </Routes>
         </main>

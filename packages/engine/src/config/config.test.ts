@@ -5,8 +5,8 @@ describe("ConfigManager", () => {
   it("returns defaults when no overrides", () => {
     const cm = new ConfigManager({});
     const config = cm.getConfig();
-    expect(config.llm.baseUrl).toBe("https://api.openai.com/v1");
-    expect(config.llm.model).toBe("gpt-4o-mini");
+    expect(config.llm.baseUrl).toBe("");
+    expect(config.llm.model).toBe("");
     expect(config.tavily.apiKey).toBeNull();
     expect(config.research.depth).toBe(2);
     expect(config.research.qualityThreshold).toBe(0.7);
@@ -19,7 +19,7 @@ describe("ConfigManager", () => {
     });
     const config = cm.getConfig();
     expect(config.llm.model).toBe("claude-sonnet-4-20250514");
-    expect(config.llm.baseUrl).toBe("https://api.openai.com/v1");
+    expect(config.llm.baseUrl).toBe("");
     expect(config.tavily.apiKey).toBe("tvly-test");
   });
 
@@ -30,7 +30,7 @@ describe("ConfigManager", () => {
     });
     expect(cm.getRole("planner").model).toBe("planner-model");
     // subagent has no user override but has a DEFAULT_ROLES entry, so uses that model
-    expect(cm.getRole("subagent").model).toBe("gpt-4o-mini");
+    expect(cm.getRole("subagent").model).toBe("");
     // an unknown role with no default falls back to global llm.model
     expect(cm.getRole("custom-role").model).toBe("default-model");
   });
@@ -40,7 +40,7 @@ describe("ConfigManager", () => {
       roles: { planner: { temperature: 0.9 } },
     });
     // Should use DEFAULT_ROLES.planner.model, not the global llm.model
-    expect(cm.getRole("planner").model).toBe("gpt-4o-mini");
+    expect(cm.getRole("planner").model).toBe("");
     expect(cm.getRole("planner").temperature).toBe(0.9);
   });
 

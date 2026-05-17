@@ -102,4 +102,45 @@ CREATE TABLE IF NOT EXISTS report_references (
 CREATE INDEX IF NOT EXISTS idx_report_references_run_id ON report_references(run_id);
 `,
   },
+  {
+    version: 3,
+    name: "evidence_spans_claims",
+    sql: `
+CREATE TABLE IF NOT EXISTS evidence_spans (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+  source_id TEXT REFERENCES sources(id) ON DELETE SET NULL,
+  subtask_id TEXT,
+  quote TEXT NOT NULL,
+  url TEXT,
+  page_title TEXT,
+  start_offset INTEGER,
+  end_offset INTEGER,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS claims (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+  claim_text TEXT NOT NULL,
+  section_heading TEXT,
+  claim_index INTEGER,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS claim_evidence (
+  id TEXT PRIMARY KEY,
+  claim_id TEXT NOT NULL REFERENCES claims(id) ON DELETE CASCADE,
+  evidence_span_id TEXT NOT NULL REFERENCES evidence_spans(id) ON DELETE CASCADE,
+  relevance_score REAL,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_evidence_spans_run_id ON evidence_spans(run_id);
+CREATE INDEX IF NOT EXISTS idx_evidence_spans_source_id ON evidence_spans(source_id);
+CREATE INDEX IF NOT EXISTS idx_claims_run_id ON claims(run_id);
+CREATE INDEX IF NOT EXISTS idx_claim_evidence_claim_id ON claim_evidence(claim_id);
+CREATE INDEX IF NOT EXISTS idx_claim_evidence_evidence_span_id ON claim_evidence(evidence_span_id);
+`,
+  },
 ];

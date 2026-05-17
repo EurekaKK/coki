@@ -4,12 +4,13 @@ const PHASE_WEIGHTS: Record<string, number> = {
   init: 2,
   plan: 8,
   split: 5,
-  subagents: 58,
+  subagents: 55,
   reflection: 5,
   synthesize: 12,
+  "extract-claims": 5,
   cite: 8,
 };
-const PHASE_ORDER = ["init", "plan", "split", "subagents", "reflection", "synthesize", "cite"];
+const PHASE_ORDER = ["init", "plan", "split", "subagents", "reflection", "synthesize", "extract-claims", "cite"];
 
 export type NodeId =
   | "init"
@@ -18,6 +19,7 @@ export type NodeId =
   | "subagents"
   | "reflection"
   | "synthesize"
+  | "extract-claims"
   | "cite";
 
 export interface PipelineNode {
@@ -76,9 +78,10 @@ export class Pipeline {
   async *run(
     initialContext: PipelineContext,
     signal?: AbortSignal,
+    startFrom?: NodeId,
   ): AsyncGenerator<PipelineEvent> {
     let ctx = { ...initialContext };
-    let currentNodeId: NodeId = "init";
+    let currentNodeId: NodeId = startFrom ?? "init";
     let steps = 0;
 
     for (;;) {

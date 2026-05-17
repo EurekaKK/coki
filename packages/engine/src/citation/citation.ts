@@ -81,3 +81,63 @@ export function addCitations(report: string): CitationResult {
 
   return { citedReport: cleaned.trim(), sources };
 }
+
+// ---------------------------------------------------------------------------
+// Citation Verifier — observability-only check
+// ---------------------------------------------------------------------------
+
+export interface VerificationResult {
+  refNumber: number;
+  sourceUrl: string;
+  verified: boolean;
+  matchedSpanCount: number;
+}
+
+/**
+ * Verify that each [^N] footnote in the cited report has supporting evidence
+ * from extracted spans. Returns per-reference verification results.
+ * This is observability-only — it does not modify the report.
+ */
+export function verifyCitations(
+  citedReport: string,
+  sources: CitedSource[],
+  evidenceSpans: Array<{ url?: string; quote: string }>,
+): VerificationResult[] {
+  const results: VerificationResult[] = [];
+  const refPattern = /\[\^(\d+)\]/g;
+  const foundRefs = new Set<number>();
+
+  // Collect all footnote numbers used in the report
+  let match: RegExpExecArray | null;
+  while ((match = refPattern.exec(citedReport)) !== null) {
+    foundRefs.add(Number(match[1]));
+  }
+
+  // Build a set of evidence URLs for quick lookup
+  const evidenceUrls = new Set<string>();
+  for (const span of evidenceSpans) {
+    if (span.url) {
+      evidenceUrls.add(normalizeUrl(span.url));
+    }
+  }
+
+  // Check each source against evidence
+  for (const source of sources) {
+    if (!foundRefs.has(source.id)) continue;
+
+    const normalizedSourceUrl = normalizeUrl(source.url);
+    const verified = evidenceUrls.has(normalizedSourceUrl);
+    const matchedSpanCount = evidenceSpans.filter(
+      (s) => s.url && normalizeUrl(s.url) === normalizedSourceUrl,
+    ).length;
+
+    results.push({
+      refNumber: source.id,
+      sourceUrl: source.url,
+      verified,
+      matchedSpanCount,
+    });
+  }
+
+  return results;
+}

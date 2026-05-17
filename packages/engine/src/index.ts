@@ -11,7 +11,7 @@ export type {
 } from "./config";
 
 export { CokiDatabase } from "./db";
-export type { RunRow, SourceRow, LLMCallRow } from "./db";
+export type { RunRow, SourceRow, LLMCallRow, TraceLogRow, EvidenceSpanRow, ClaimRow, ClaimEvidenceRow } from "./db";
 
 export { LLMClient } from "./llm";
 export type {
@@ -43,9 +43,12 @@ export type {
   SourceRecord,
   ResearchPlan,
   PipelineContext,
+  EvidenceSpan,
+  Claim,
 } from "./pipeline";
 
 export { ResearchEngine } from "./engine";
 export type { RuntimeSecrets } from "./engine";
 
-export { addCitations } from "./citation/citation";
+export { addCitations, verifyCitations } from "./citation/citation";
+export type { CitedSource, CitationResult, VerificationResult } from "./citation/citation";

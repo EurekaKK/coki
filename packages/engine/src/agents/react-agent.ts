@@ -1,9 +1,33 @@
 import type { LLMClient, ToolDef, GenerateResult } from "../llm/client";
 import type { TavilySearchProvider } from "../search/tavily";
-import type { SubagentReport, SourceRecord } from "../pipeline/context";
+import type { SubagentReport, SourceRecord, EvidenceSpan } from "../pipeline/context";
 import { SUBAGENT_SYSTEM_PROMPT, SUBAGENT_REPORT_PROMPT } from "./prompts";
 import { randomUUID } from "node:crypto";
 import { toolLogger } from "../logger";
+
+function splitIntoSpans(content: string, maxChars: number): Array<{ text: string; start: number; end: number }> {
+  const spans: Array<{ text: string; start: number; end: number }> = [];
+  const paragraphs = content.split(/\n{2,}/);
+  let offset = 0;
+  for (const para of paragraphs) {
+    const trimmed = para.trim();
+    if (!trimmed) {
+      offset += para.length + 2;
+      continue;
+    }
+    if (trimmed.length <= maxChars) {
+      spans.push({ text: trimmed, start: offset, end: offset + trimmed.length });
+    } else {
+      // Split long paragraphs into chunks
+      for (let i = 0; i < trimmed.length; i += maxChars) {
+        const chunk = trimmed.slice(i, i + maxChars);
+        spans.push({ text: chunk, start: offset + i, end: offset + i + chunk.length });
+      }
+    }
+    offset += para.length + 2;
+  }
+  return spans;
+}
 
 export interface AgentConfig {
   maxSteps: number;
@@ -26,6 +50,7 @@ export async function runSubagent(
   const log = runId ? toolLogger(runId, "subagents") : null;
   const sources: SourceRecord[] = [];
   const evidence: string[] = [];
+  const evidenceSpans: EvidenceSpan[] = [];
   let searchCount = 0;
   let fetchCount = 0;
   const seenUrls = new Set<string>();
@@ -117,6 +142,18 @@ export async function runSubagent(
         for (const r of results) {
           if (r.success) {
             evidence.push(`[Source: ${r.url}]\n${r.content.slice(0, 2000)}`);
+            // Extract structured evidence spans
+            const chunks = splitIntoSpans(r.content, 500);
+            for (const chunk of chunks) {
+              evidenceSpans.push({
+                id: randomUUID(),
+                subtaskId,
+                quote: chunk.text,
+                url: r.url,
+                startOffset: chunk.start,
+                endOffset: chunk.end,
+              });
+            }
           }
         }
         log?.debug({ results }, "tavily_extract: raw results");
@@ -247,5 +284,6 @@ export async function runSubagent(
     subtaskId,
     report: finalReport,
     sources,
+    evidenceSpans,
   };
 }

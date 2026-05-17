@@ -1,5 +1,7 @@
 import electron from "electron";
 const { ipcMain, BrowserWindow } = electron;
+import { readFileSync, existsSync } from "node:fs";
+import { join } from "node:path";
 import type { ResearchEngine, CokiDatabase } from "@coki/engine";
 import type { SecretStore } from "./secret-store";
 import type { ConfigManager } from "@coki/engine";
@@ -17,12 +19,13 @@ export function registerIPCHandlers(
     const mainWindow = getMainWindow();
 
     // Run pipeline in background, forward events to renderer
-    const run = engine.runResearch(query, (options?.depth ?? 2) as 1 | 2 | 3, {
+    const gen = engine.runResearch(query, (options?.depth ?? 2) as 1 | 2 | 3, {
       outputLanguage: (options?.outputLanguage ?? "zh") as "zh" | "en",
+      runId,
     });
 
     (async () => {
-      for await (const event of run) {
+      for await (const event of gen) {
         mainWindow?.webContents.send("research:progress", event);
       }
     })();
@@ -44,6 +47,114 @@ export function registerIPCHandlers(
 
   ipcMain.handle("research:delete", async (_event, runId: string) => {
     engine.deleteRun(runId);
+  });
+
+  ipcMain.handle("research:llmCalls", async (_event, runId: string) => {
+    return db.getLLMCallsByRun(runId);
+  });
+
+  ipcMain.handle("research:costSummary", async (_event, runId: string) => {
+    const calls = db.getLLMCallsByRun(runId);
+    const totalInput = calls.reduce((s, c) => s + (c.input_tokens ?? 0), 0);
+    const totalOutput = calls.reduce((s, c) => s + (c.output_tokens ?? 0), 0);
+    const totalLatency = calls.reduce((s, c) => s + (c.latency_ms ?? 0), 0);
+    const byPhase: Record<string, { calls: number; inputTokens: number; outputTokens: number }> = {};
+    for (const call of calls) {
+      const phase = call.role ?? "unknown";
+      if (!byPhase[phase]) byPhase[phase] = { calls: 0, inputTokens: 0, outputTokens: 0 };
+      byPhase[phase].calls++;
+      byPhase[phase].inputTokens += call.input_tokens ?? 0;
+      byPhase[phase].outputTokens += call.output_tokens ?? 0;
+    }
+    return { totalInput, totalOutput, totalLatency, callCount: calls.length, byPhase };
+  });
+
+  ipcMain.handle("research:timeline", async (_event, runId: string) => {
+    const logPath = join(process.env.HOME ?? "/tmp", "Library/Logs/@coki/main/coki.log");
+    if (!existsSync(logPath)) return [];
+
+    const content = readFileSync(logPath, "utf-8");
+    const logs: Array<{
+      id: number;
+      run_id: string;
+      phase: string | null;
+      event_type: string | null;
+      message: string | null;
+      details: string | null;
+      level: string;
+      created_at: string;
+    }> = [];
+    let id = 0;
+
+    for (const line of content.split("\n")) {
+      if (!line.trim()) continue;
+      try {
+        const entry = JSON.parse(line);
+        if (entry.runId !== runId) continue;
+
+        const levelMap: Record<number, string> = { 10: "trace", 20: "debug", 30: "info", 40: "warn", 50: "error", 60: "fatal" };
+        const level = levelMap[entry.level] ?? "info";
+
+        // Build details from extra fields (exclude standard ones)
+        const { time, level: _l, pid, hostname, runId: _r, msg, component, phase, ...rest } = entry;
+        const details = Object.keys(rest).length > 0 ? JSON.stringify(rest) : null;
+
+        logs.push({
+          id: id++,
+          run_id: runId,
+          phase: phase ?? component ?? null,
+          event_type: component ?? null,
+          message: msg ?? null,
+          details,
+          level,
+          created_at: entry.time ?? "",
+        });
+      } catch {
+        // skip unparseable lines
+      }
+    }
+    return logs;
+  });
+
+  ipcMain.handle("research:rerun", async (_event, runId: string, mode: "full" | "reuse-sources" | "reuse-plan") => {
+    const originalRun = engine.getRun(runId);
+    if (!originalRun) throw new Error("Run not found");
+    const mainWindow = getMainWindow();
+
+    if (mode === "full") {
+      const newRunId = crypto.randomUUID();
+      const gen = engine.runResearch(originalRun.user_query, originalRun.depth as 1 | 2 | 3, { runId: newRunId });
+      (async () => {
+        for await (const event of gen) {
+          mainWindow?.webContents.send("research:progress", event);
+        }
+      })();
+      return newRunId;
+    }
+
+    if (mode === "reuse-sources") {
+      const newRunId = crypto.randomUUID();
+      const gen = engine.rerunSynthesize(runId, { runId: newRunId });
+      (async () => {
+        for await (const event of gen) {
+          mainWindow?.webContents.send("research:progress", event);
+        }
+      })();
+      return newRunId;
+    }
+
+    if (mode === "reuse-plan") {
+      const newRunId = crypto.randomUUID();
+      const gen = engine.rerunWithPlan(runId, { runId: newRunId });
+      (async () => {
+        for await (const event of gen) {
+          mainWindow?.webContents.send("research:progress", event);
+        }
+      })();
+      return newRunId;
+    }
+
+    throw new Error(`Unknown rerun mode: ${mode}`);
   });
 
   // Config
@@ -124,6 +235,16 @@ export function registerIPCHandlers(
     }
     if (Object.keys(enginePatch).length > 0) {
       config.updateConfig(enginePatch as any);
+    }
+
+    // Sync role models to LLM client
+    if (Object.keys(rolesOverride).length > 0) {
+      const roleModels: Record<string, string> = {};
+      for (const role of roleNames) {
+        const m = config.getRole(role).model;
+        if (m) roleModels[role] = m;
+      }
+      engine.updateRoleModels(roleModels);
     }
   });
 }

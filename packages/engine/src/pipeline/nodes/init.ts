@@ -28,5 +28,7 @@ export async function initNode(ctx: PipelineContext): Promise<PipelineContext> {
     researchComplete: false,
     report: null,
     citedReport: null,
+    evidenceSpans: [],
+    claims: [],
   };
 }
