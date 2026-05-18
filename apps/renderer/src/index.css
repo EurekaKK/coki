@@ -229,6 +229,28 @@
   scroll-margin-top: 5rem;
 }
 
+.markdown-report ul {
+  list-style-type: disc;
+  padding-left: 1.5rem;
+  margin-bottom: 1.5em;
+}
+
+.markdown-report ol {
+  list-style-type: decimal;
+  padding-left: 1.5rem;
+  margin-bottom: 1.5em;
+}
+
+.markdown-report li {
+  margin-bottom: 0.4em;
+}
+
+.markdown-report li > ul,
+.markdown-report li > ol {
+  margin-top: 0.4em;
+  margin-bottom: 0.4em;
+}
+
 .markdown-report table {
   font-size: 0.9rem;
   width: 100%;
@@ -244,11 +266,17 @@
 .markdown-report th,
 .markdown-report td {
   padding: 0.75rem 1rem;
-  border-bottom: 1px solid var(--border);
+  border: 1px solid var(--border);
 }
 
 .markdown-report tr:hover td {
   background-color: var(--secondary);
+}
+
+.markdown-report table strong,
+.markdown-report table b {
+  font-weight: 700;
+  color: var(--foreground);
 }
 
 .markdown-report blockquote {
