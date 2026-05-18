@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -143,6 +143,16 @@ export function Report() {
     return () => main.removeEventListener("scroll", handleScroll);
   }, [headings]);
 
+  const title = useMemo(() => {
+    const m = report?.match(/^#\s+(.+)$/m);
+    return m ? m[1].trim() : "深度研究报告";
+  }, [report]);
+
+  const cleanedReport = useMemo(() => {
+    if (!report) return "";
+    return report.replace(/^#\s+.+$/m, "").trimStart();
+  }, [report]);
+
   const scrollToHeading = useCallback((index: number) => {
     const elements = document.querySelectorAll(
       ".markdown-report h2, .markdown-report h3",
@@ -243,11 +253,8 @@ export function Report() {
       <div className="flex-1 min-w-0">
         {/* Report header */}
         <div className="mb-8">
-          <div className="text-[13px] font-medium text-muted-foreground mb-2">
-            研究报告
-          </div>
-          <h1 className="text-[28px] font-bold tracking-tight text-foreground">
-            深度研究报告
+          <h1 className="text-[28px] font-bold tracking-tight text-foreground leading-tight">
+            {title}
           </h1>
         </div>
 
@@ -260,7 +267,7 @@ export function Report() {
             ]}
             components={components}
           >
-            {report}
+            {cleanedReport}
           </ReactMarkdown>
         </article>
 
