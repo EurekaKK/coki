@@ -1,4 +1,7 @@
 import { useState, useEffect } from "react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Card } from "@/components/ui/card";
+import { ChevronDown, ChevronUp } from "lucide-react";
 
 const api = (window as any).coki;
 
@@ -30,57 +33,68 @@ export function CostPanel({ runId }: { runId: string }) {
     `${ms}ms`;
 
   return (
-    <div className="border rounded-lg">
-      <button
-        onClick={() => setOpen(!open)}
-        className="w-full px-4 py-2 text-left text-sm font-medium text-gray-700 hover:bg-gray-50 flex justify-between items-center"
-      >
-        <span>Cost &amp; Tokens</span>
-        <span className="text-gray-400">{open ? "▲" : "▼"}</span>
-      </button>
-      {open && data && (
-        <div className="px-4 pb-4 space-y-3">
-          <div className="grid grid-cols-3 gap-4 text-center">
-            <div>
-              <div className="text-2xl font-semibold">{formatTokens(data.totalInput + data.totalOutput)}</div>
-              <div className="text-xs text-gray-500">Total Tokens</div>
-            </div>
-            <div>
-              <div className="text-2xl font-semibold">{data.callCount}</div>
-              <div className="text-xs text-gray-500">LLM Calls</div>
-            </div>
-            <div>
-              <div className="text-2xl font-semibold">{formatMs(data.totalLatency)}</div>
-              <div className="text-xs text-gray-500">Total Latency</div>
-            </div>
-          </div>
-          {Object.keys(data.byPhase).length > 0 && (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-gray-500 text-xs">
-                  <th className="text-left py-1">Phase</th>
-                  <th className="text-right py-1">Calls</th>
-                  <th className="text-right py-1">Input</th>
-                  <th className="text-right py-1">Output</th>
-                </tr>
-              </thead>
-              <tbody>
-                {Object.entries(data.byPhase).map(([phase, stats]) => (
-                  <tr key={phase} className="border-t">
-                    <td className="py-1">{phase}</td>
-                    <td className="text-right">{stats.calls}</td>
-                    <td className="text-right">{formatTokens(stats.inputTokens)}</td>
-                    <td className="text-right">{formatTokens(stats.outputTokens)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+    <Card className="border-none shadow-none bg-transparent">
+      <Collapsible open={open} onOpenChange={setOpen}>
+        <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium text-foreground hover:bg-secondary rounded-xl transition-colors duration-150">
+          <span>成本与令牌</span>
+          {open ? (
+            <ChevronUp className="w-4 h-4 text-muted-foreground" />
+          ) : (
+            <ChevronDown className="w-4 h-4 text-muted-foreground" />
           )}
-        </div>
-      )}
-      {open && !data && (
-        <div className="px-4 pb-4 text-sm text-gray-400">Loading...</div>
-      )}
-    </div>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          {data ? (
+            <div className="px-4 pb-4 space-y-4">
+              <div className="grid grid-cols-3 gap-4 text-center">
+                <div className="p-3 rounded-xl bg-secondary">
+                  <div className="text-[22px] font-semibold text-foreground">
+                    {formatTokens(data.totalInput + data.totalOutput)}
+                  </div>
+                  <div className="text-[11px] text-muted-foreground mt-1">总令牌数</div>
+                </div>
+                <div className="p-3 rounded-xl bg-secondary">
+                  <div className="text-[22px] font-semibold text-foreground">{data.callCount}</div>
+                  <div className="text-[11px] text-muted-foreground mt-1">LLM 调用</div>
+                </div>
+                <div className="p-3 rounded-xl bg-secondary">
+                  <div className="text-[22px] font-semibold text-foreground">
+                    {formatMs(data.totalLatency)}
+                  </div>
+                  <div className="text-[11px] text-muted-foreground mt-1">总耗时</div>
+                </div>
+              </div>
+
+              {Object.keys(data.byPhase).length > 0 && (
+                <div className="rounded-xl bg-secondary overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-muted-foreground text-[11px] uppercase tracking-wider">
+                        <th className="text-left py-2.5 px-4">阶段</th>
+                        <th className="text-right py-2.5 px-4">调用</th>
+                        <th className="text-right py-2.5 px-4">输入</th>
+                        <th className="text-right py-2.5 px-4">输出</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Object.entries(data.byPhase).map(([phase, stats]) => (
+                        <tr key={phase} className="border-t border-border/50">
+                          <td className="py-2 px-4 text-foreground">{phase}</td>
+                          <td className="text-right py-2 px-4">{stats.calls}</td>
+                          <td className="text-right py-2 px-4">{formatTokens(stats.inputTokens)}</td>
+                          <td className="text-right py-2 px-4">{formatTokens(stats.outputTokens)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="px-4 pb-4 text-sm text-muted-foreground">加载中...</div>
+          )}
+        </CollapsibleContent>
+      </Collapsible>
+    </Card>
   );
 }
