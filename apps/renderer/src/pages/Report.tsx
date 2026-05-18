@@ -29,7 +29,13 @@ function slugify(text: string): string {
 function extractHeadings(report: string): TocItem[] {
   const lines = report.split("\n");
   const items: TocItem[] = [];
+  let inCodeBlock = false;
   for (const line of lines) {
+    if (line.trim().startsWith("```")) {
+      inCodeBlock = !inCodeBlock;
+      continue;
+    }
+    if (inCodeBlock) continue;
     const match = line.match(/^(#{2,3})\s+(.+)$/);
     if (match) {
       const level = match[1].length;
@@ -39,6 +45,15 @@ function extractHeadings(report: string): TocItem[] {
     }
   }
   return items;
+}
+
+function getHastText(node: any): string {
+  if (!node) return "";
+  if (node.type === "text") return node.value || "";
+  if (Array.isArray(node.children)) {
+    return node.children.map(getHastText).join("");
+  }
+  return "";
 }
 
 export function Report() {
@@ -51,6 +66,9 @@ export function Report() {
   const mainRef = useRef<HTMLElement | null>(null);
   const headingMapRef = useRef<Map<string, string>>(new Map());
   const tocIndexRef = useRef(0);
+
+  // Reset heading index at the start of every render so re-renders don't shift IDs
+  tocIndexRef.current = 0;
 
   useEffect(() => {
     mainRef.current = document.querySelector("main");
@@ -102,18 +120,16 @@ export function Report() {
     return () => main.removeEventListener("scroll", handleScroll);
   }, [headings]);
 
-  const getHeadingId = useCallback((level: number, childrenText: string): string => {
+  const getHeadingId = useCallback((level: number, _text: string): string => {
     const items = extractHeadings(report || "");
     const idx = tocIndexRef.current;
     const item = items[idx];
     if (item && item.level === level) {
       tocIndexRef.current = idx + 1;
-      headingMapRef.current.set(childrenText, item.id);
       return item.id;
     }
-    // fallback
-    const fallback = slugify(childrenText) || `heading-${idx}`;
-    headingMapRef.current.set(childrenText, fallback);
+    // fallback: derive from rendered text
+    const fallback = slugify(_text) || `heading-${idx}`;
     return fallback;
   }, [report]);
 
@@ -204,31 +220,32 @@ export function Report() {
               [rehypeHighlight, { detect: true, ignoreMissing: true }],
             ]}
             components={{
-              h2: ({ node: _node, children, ...props }) => {
-                const text =
-                  typeof children === "string"
-                    ? children
-                    : Array.isArray(children)
-                      ? children.join("")
-                      : "";
-                const id = getHeadingId(2, text);
+              h2: ({ node, children, ...props }) => {
+                const text = getHastText(node).trim();
                 const isFootnotes =
                   props.id === "footnote-label" || text === "Footnotes";
+                if (isFootnotes) {
+                  return (
+                    <h2 {...props} id="footnote-label">
+                      References
+                    </h2>
+                  );
+                }
+                const id = getHeadingId(2, text);
                 return (
                   <h2 {...props} id={id}>
-                    {isFootnotes ? "References" : children}
+                    {children}
                   </h2>
                 );
               },
-              h3: ({ node: _node, children, ...props }) => {
-                const text =
-                  typeof children === "string"
-                    ? children
-                    : Array.isArray(children)
-                      ? children.join("")
-                      : "";
+              h3: ({ node, children, ...props }) => {
+                const text = getHastText(node).trim();
                 const id = getHeadingId(3, text);
-                return <h3 {...props} id={id}>{children}</h3>;
+                return (
+                  <h3 {...props} id={id}>
+                    {children}
+                  </h3>
+                );
               },
               a: ({ href, children, ...props }) => {
                 if (href?.startsWith("#")) {
