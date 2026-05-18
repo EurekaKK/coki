@@ -1,0 +1,10 @@
+export { parseDocument } from "./parser";
+export type { ParsedDocument } from "./parser";
+export { chunkText } from "./chunker";
+export type { TextChunk, ChunkOptions } from "./chunker";
+export { ZhipuEmbeddingProvider, LocalEmbeddingProvider } from "./embeddings";
+export type { EmbeddingProvider, ZhipuEmbeddingConfig, LocalEmbeddingConfig } from "./embeddings";
+export { VectraStore } from "./vectra-store";
+export type { SearchResult, VectraStoreConfig } from "./vectra-store";
+export { DocumentManager } from "./document-manager";
+export type { CreateCollectionParams, ChunkSearchResult } from "./document-manager";
