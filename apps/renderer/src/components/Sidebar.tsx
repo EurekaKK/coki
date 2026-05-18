@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { NavLink } from "react-router-dom";
-import { FlaskConical, History, Settings } from "lucide-react";
+import { FlaskConical, History, Settings, Library } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const MIN_WIDTH = 160;
@@ -9,6 +9,7 @@ const DEFAULT_WIDTH = 220;
 
 const NAV_ITEMS = [
   { to: "/", label: "新研究", icon: FlaskConical },
+  { to: "/library", label: "文库", icon: Library },
   { to: "/history", label: "历史", icon: History },
   { to: "/settings", label: "设置", icon: Settings },
 ];

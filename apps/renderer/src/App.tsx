@@ -6,6 +6,7 @@ import { Dashboard } from "./pages/Dashboard";
 import { Report } from "./pages/Report";
 import { History } from "./pages/History";
 import { Settings } from "./pages/Settings";
+import { Library } from "./pages/Library";
 import { Timeline } from "./components/Timeline";
 
 function AppRoutes() {
@@ -36,6 +37,7 @@ function AppRoutes() {
         <Route path="/history" element={<History />} />
         <Route path="/timeline/:runId" element={<Timeline />} />
         <Route path="/settings" element={<Settings />} />
+        <Route path="/library" element={<Library />} />
       </Routes>
     </div>
   );
