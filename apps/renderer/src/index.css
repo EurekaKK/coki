@@ -202,11 +202,26 @@
   border-top: 1px solid var(--border);
 }
 
+.markdown-report [data-footnotes] ol {
+  list-style-type: decimal;
+  padding-left: 1.5rem;
+}
+
 .markdown-report [data-footnotes] li {
   scroll-margin-top: 5rem;
   padding: 0.25rem 0;
   font-size: 13px;
   color: var(--muted-foreground);
+}
+
+.markdown-report [data-footnotes] li a:not([href^="#"]) {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.markdown-report [data-footnotes] li a:not([href^="#"]):hover {
+  text-decoration: none;
 }
 
 .markdown-report sup[id^="user-content-fnref-"],
