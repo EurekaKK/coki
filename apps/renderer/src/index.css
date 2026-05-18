@@ -133,6 +133,18 @@
   font-weight: 600;
 }
 
+.markdown-report h2 {
+  font-size: 22px;
+  margin-top: 2em;
+  margin-bottom: 0.8em;
+}
+
+.markdown-report h3 {
+  font-size: 16px;
+  margin-top: 1.6em;
+  margin-bottom: 0.6em;
+}
+
 .markdown-report p {
   margin-bottom: 1.5em;
 }

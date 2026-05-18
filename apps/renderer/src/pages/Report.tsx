@@ -214,8 +214,8 @@ export function Report() {
                       className={cn(
                         "block w-full text-left rounded-lg transition-all duration-150",
                         h.level === 2
-                          ? "text-[15px] font-semibold px-3 py-1.5"
-                          : "text-[12px] font-normal px-3 py-1 pl-6",
+                          ? "text-[14px] font-medium px-3 py-1.5"
+                          : "text-[12px] font-semibold px-3 py-1 pl-6",
                         activeIndex === i
                           ? "text-primary bg-primary/10"
                           : "text-muted-foreground hover:text-foreground hover:bg-secondary",
