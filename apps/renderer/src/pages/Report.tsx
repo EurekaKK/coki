@@ -7,6 +7,8 @@ import rehypeKatex from "rehype-katex";
 import rehypeHighlight from "rehype-highlight";
 import { api } from "../lib/api";
 import { CostPanel } from "../components/CostPanel";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export function Report() {
   const { runId } = useParams<{ runId: string }>();
@@ -29,18 +31,46 @@ export function Report() {
     await api.research.exportMarkdown(`report-${slug}.md`, report);
   };
 
-  if (loading) return <div className="p-8">Loading...</div>;
-  if (!report) return <div className="p-8">No report found.</div>;
+  if (loading) {
+    return (
+      <div className="max-w-[800px] mx-auto px-8 py-12">
+        <Skeleton className="h-4 w-48 mb-4" />
+        <Skeleton className="h-8 w-full mb-8" />
+        <div className="space-y-4">
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-3/4" />
+        </div>
+      </div>
+    );
+  }
+
+  if (!report) {
+    return (
+      <div className="max-w-[800px] mx-auto px-8 py-12 text-center">
+        <p className="text-muted-foreground">未找到报告</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="p-8 max-w-4xl mx-auto">
-      <article className="markdown-report prose prose-slate max-w-none prose-headings:scroll-mt-20 prose-h1:text-3xl prose-h2:text-2xl prose-h2:border-b prose-h2:pb-2 prose-h3:text-xl prose-h4:text-lg prose-pre:bg-gray-50 prose-pre:text-gray-900 prose-pre:border prose-pre:border-gray-200 prose-table:my-4">
+    <div className="max-w-[800px] mx-auto px-8 py-12">
+      {/* Report header */}
+      <div className="mb-8">
+        <div className="text-[13px] font-medium text-muted-foreground mb-2">
+          研究报告
+        </div>
+        <h1 className="text-[28px] font-bold tracking-tight text-foreground">
+          深度研究报告
+        </h1>
+      </div>
+
+      {/* Report content */}
+      <article className="markdown-report">
         <ReactMarkdown
           remarkPlugins={[remarkGfm, remarkMath]}
           rehypePlugins={[rehypeKatex, [rehypeHighlight, { detect: true, ignoreMissing: true }]]}
           components={{
-            // remark-gfm auto-generates an English "Footnotes" h2 at the end
-            // of the document. Rename it to "References" for users.
             h2: ({ node: _node, children, ...props }) => {
               const isFootnotes =
                 props.id === "footnote-label" ||
@@ -51,10 +81,6 @@ export function Report() {
                 </h2>
               );
             },
-            // The app uses HashRouter, so clicking href="#user-content-fn-1"
-            // would let React Router intercept the hash change and render a
-            // blank "no matching route" screen. Intercept all #hash links and
-            // do a manual scrollIntoView instead.
             a: ({ href, children, ...props }) => {
               if (href?.startsWith("#")) {
                 return (
@@ -73,7 +99,6 @@ export function Report() {
                   </a>
                 );
               }
-              // External links — open in system browser, not inside Electron
               return (
                 <a {...props} href={href} target="_blank" rel="noreferrer">
                   {children}
@@ -85,21 +110,19 @@ export function Report() {
           {report}
         </ReactMarkdown>
       </article>
-      <div className="mt-8 flex gap-4 items-center flex-wrap">
-        <button
-          className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300 text-sm"
-          onClick={handleExport}
-        >
-          Save as .md
-        </button>
-        <button
-          className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300 text-sm"
-          onClick={() => navigate(`/timeline/${runId}`)}
-        >
-          View Timeline
-        </button>
+
+      {/* Action bar */}
+      <div className="flex gap-3 items-center justify-center mt-12 pt-8 border-t border-border">
+        <Button variant="secondary" size="sm" onClick={handleExport}>
+          保存为 .md
+        </Button>
+        <Button variant="secondary" size="sm" onClick={() => navigate(`/timeline/${runId}`)}>
+          查看时间线
+        </Button>
       </div>
-      <div className="mt-4">
+
+      {/* Cost panel */}
+      <div className="mt-6">
         <CostPanel runId={runId!} />
       </div>
     </div>
