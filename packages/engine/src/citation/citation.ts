@@ -16,7 +16,8 @@ export interface CitationResult {
 }
 
 // Match [src: url] — closing ] is optional to handle malformed markers like [src: url)
-const SRC_PATTERN = /\[src:\s*((?:https?)[^\]\)]*)\]?[)]?/g;
+// Supports http(s) URLs and doc:// synthetic URLs for document sources
+const SRC_PATTERN = /\[src:\s*((?:https?|doc:)[^\]\)]*)\]?[)]?/g;
 // Match empty/orphaned [src: ] markers (no URL)
 const EMPTY_SRC_PATTERN = /\[src:\s*\]/g;
 
@@ -93,6 +94,11 @@ export function addCitations(
     const definitions = sources
       .map((s) => {
         const title = lookupTitle(titleByUrl, s.url);
+        if (s.url.startsWith("doc://")) {
+          // Document sources render as plain text with title
+          const docTitle = title ?? `Document ${s.url.slice(6, 14)}`;
+          return `[^${s.id}]: ${escapeLinkText(docTitle)}`;
+        }
         if (title) {
           return `[^${s.id}]: [${escapeLinkText(title)}](${s.url})`;
         }

@@ -70,13 +70,17 @@ export function createCiteNode(db: CokiDatabase) {
       const existing = source.url
         ? db.getSourceByUrlAndRunId(source.url, ctx.runId)
         : undefined;
+
+      const isDocument = source.url?.startsWith("doc://");
+      const documentId = isDocument ? source.url!.slice(6) : null;
       const sourceId = existing?.id ?? db.insertSource({
         run_id: ctx.runId,
-        source_type: "web",
-        url: source.url,
+        source_type: isDocument ? "document" : "web",
+        url: isDocument ? null : source.url,
+        document_id: documentId,
         title: existingSource?.title,
         snippet: existingSource?.snippet,
-        fetch_status: fetchStatus,
+        fetch_status: isDocument ? "ok" : fetchStatus,
       });
 
       // Write to report_references table

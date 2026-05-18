@@ -356,8 +356,39 @@ export async function runSubagent(
       const query = input.query as string;
       log?.info({ query }, "search_documents: executing");
       try {
-        const output = await executeDocumentSearch(documentManager, collectionId, query);
-        log?.info({ query, resultLength: output.length }, "search_documents: done");
+        const results = await documentManager.search(collectionId, query);
+        if (results.length === 0) {
+          return "No relevant documents found.";
+        }
+
+        // Track document sources and evidence for citation
+        for (const r of results) {
+          const doc = documentManager.getDocument(r.documentId);
+          const docUrl = `doc://${r.documentId}`;
+          sources.push({
+            id: randomUUID(),
+            sourceType: "document",
+            url: docUrl,
+            title: doc?.filename ?? `Document ${r.documentId.slice(0, 8)}`,
+            snippet: r.text.slice(0, 200),
+            fetchStatus: "ok",
+          });
+          evidence.push(`[Source: ${docUrl}]\n${r.text.slice(0, 2000)}`);
+          evidenceSpans.push({
+            id: randomUUID(),
+            subtaskId: subtask.id,
+            quote: r.text,
+            url: docUrl,
+            startOffset: r.chunkIndex,
+            endOffset: r.chunkIndex,
+          });
+        }
+
+        const output = results
+          .map((r, i) => `Result ${i + 1} (score: ${(r.score * 100).toFixed(1)}%)\n[Source: doc://${r.documentId}]\n${r.text}`)
+          .join("\n\n---\n\n");
+
+        log?.info({ query, resultCount: results.length }, "search_documents: done");
         return output;
       } catch (error) {
         const errMsg = error instanceof Error ? error.message : String(error);
