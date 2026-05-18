@@ -63,9 +63,10 @@ app.whenReady().then(async () => {
   }
 
   const config = new ConfigManager(configOverrides as any);
-  const engine = new ResearchEngine(db, configOverrides as any, secrets);
+  const indexPath = join(app.getPath("userData"), "vectra-indexes");
+  const engine = new ResearchEngine(db, configOverrides as any, secrets, { indexBasePath: indexPath });
 
-  registerIPCHandlers(engine, db, config, secretStore, () => mainWindow);
+  registerIPCHandlers(engine, db, config, secretStore, () => mainWindow, engine.getDocumentManager());
   createMainWindow();
 });
 

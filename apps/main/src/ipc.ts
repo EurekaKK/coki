@@ -1,8 +1,8 @@
 import electron from "electron";
 const { ipcMain, BrowserWindow, dialog } = electron;
-import { readFileSync, existsSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import type { ResearchEngine, CokiDatabase } from "@coki/engine";
+import { readFileSync, existsSync, writeFileSync, copyFileSync, mkdirSync } from "node:fs";
+import { join, extname } from "node:path";
+import type { ResearchEngine, CokiDatabase, DocumentManager } from "@coki/engine";
 import type { SecretStore } from "./secret-store";
 import type { ConfigManager } from "@coki/engine";
 
@@ -11,7 +11,8 @@ export function registerIPCHandlers(
   db: CokiDatabase,
   config: ConfigManager,
   secretStore: SecretStore,
-  getMainWindow: () => BrowserWindow | null
+  getMainWindow: () => BrowserWindow | null,
+  documentManager: DocumentManager | null,
 ): void {
   // Research
   ipcMain.handle("research:start", async (_event, query: string, options?: { depth?: number; outputLanguage?: string }) => {
@@ -216,5 +217,74 @@ export function registerIPCHandlers(
       }
       engine.updateRoleModels(roleModels);
     }
+  });
+
+  // Documents
+  ipcMain.handle("documents:getCollections", async () => {
+    if (!documentManager) return [];
+    return documentManager.listCollections();
+  });
+
+  ipcMain.handle("documents:createCollection", async (_event, name: string, description?: string) => {
+    if (!documentManager) throw new Error("Document manager not initialized");
+    return documentManager.createCollection({ name, description });
+  });
+
+  ipcMain.handle("documents:deleteCollection", async (_event, id: string) => {
+    if (!documentManager) throw new Error("Document manager not initialized");
+    await documentManager.deleteCollection(id);
+  });
+
+  ipcMain.handle("documents:getDocuments", async (_event, collectionId: string) => {
+    if (!documentManager) return [];
+    return documentManager.listDocuments(collectionId);
+  });
+
+  ipcMain.handle("documents:importFiles", async (_event, collectionId: string) => {
+    if (!documentManager) throw new Error("Document manager not initialized");
+    const mainWindow = getMainWindow();
+    if (!mainWindow) throw new Error("No main window");
+
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ["openFile", "multiSelections"],
+      filters: [
+        { name: "Documents", extensions: ["txt", "md", "pdf"] },
+      ],
+    });
+
+    if (result.canceled || result.filePaths.length === 0) return [];
+
+    const imported: Array<{ id: string; filename: string; status: string }> = [];
+    const docsDir = join(electron.app.getPath("userData"), "documents", collectionId);
+    mkdirSync(docsDir, { recursive: true });
+
+    for (const filePath of result.filePaths) {
+      const filename = filePath.split("/").pop() ?? "unknown";
+      const ext = extname(filename).slice(1).toLowerCase();
+      if (!["txt", "md", "pdf"].includes(ext)) continue;
+
+      const docId = crypto.randomUUID();
+      const destPath = join(docsDir, `${docId}.${ext}`);
+      copyFileSync(filePath, destPath);
+
+      try {
+        const id = await documentManager.importDocument(collectionId, filename, destPath);
+        imported.push({ id, filename, status: "ready" });
+      } catch (err) {
+        imported.push({ id: docId, filename, status: "error" });
+      }
+    }
+
+    return imported;
+  });
+
+  ipcMain.handle("documents:deleteDocument", async (_event, documentId: string) => {
+    if (!documentManager) throw new Error("Document manager not initialized");
+    await documentManager.deleteDocument(documentId);
+  });
+
+  ipcMain.handle("documents:search", async (_event, collectionId: string, query: string) => {
+    if (!documentManager) throw new Error("Document manager not initialized");
+    return documentManager.search(collectionId, query);
   });
 }
