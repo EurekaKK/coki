@@ -4,67 +4,187 @@
 @import "katex/dist/katex.min.css";
 @import "highlight.js/styles/github.css";
 
-/* Make footnote refs (citations) visually distinct */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar-bg: var(--sidebar-bg);
+  --color-sidebar-border: var(--sidebar-border);
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --radius-xl: 18px;
+}
+
+:root {
+  --background: #ffffff;
+  --foreground: #1d1d1f;
+  --card: #ffffff;
+  --card-foreground: #1d1d1f;
+  --popover: #ffffff;
+  --popover-foreground: #1d1d1f;
+  --primary: #0071e3;
+  --primary-foreground: #ffffff;
+  --secondary: #f5f5f7;
+  --secondary-foreground: #1d1d1f;
+  --muted: #f5f5f7;
+  --muted-foreground: #86868b;
+  --accent: #f5f5f7;
+  --accent-foreground: #1d1d1f;
+  --destructive: #ff3b30;
+  --destructive-foreground: #ffffff;
+  --border: #e8e8ed;
+  --input: #e8e8ed;
+  --ring: #0071e3;
+  --sidebar-bg: #f5f5f7;
+  --sidebar-border: #e8e8ed;
+  --success: #34c759;
+  --warning: #ff9500;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-md: 0 4px 16px rgba(0,0,0,0.08);
+  --shadow-lg: 0 12px 40px rgba(0,0,0,0.12);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #000000;
+    --foreground: #f5f5f7;
+    --card: #000000;
+    --card-foreground: #f5f5f7;
+    --popover: #1c1c1e;
+    --popover-foreground: #f5f5f7;
+    --primary: #0a84ff;
+    --primary-foreground: #ffffff;
+    --secondary: #1c1c1e;
+    --secondary-foreground: #f5f5f7;
+    --muted: #1c1c1e;
+    --muted-foreground: #98989d;
+    --accent: #1c1c1e;
+    --accent-foreground: #f5f5f7;
+    --destructive: #ff453a;
+    --destructive-foreground: #ffffff;
+    --border: #38383a;
+    --input: #38383a;
+    --ring: #0a84ff;
+    --sidebar-bg: #1c1c1e;
+    --sidebar-border: #2c2c2e;
+    --success: #30d158;
+    --warning: #ff9f0a;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
+    --shadow-md: 0 4px 16px rgba(0,0,0,0.4);
+    --shadow-lg: 0 12px 40px rgba(0,0,0,0.5);
+  }
+
+  @import "highlight.js/styles/github-dark.css";
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/* Markdown report styles */
+.markdown-report {
+  font-family: 'Noto Serif SC', Georgia, 'Times New Roman', serif;
+  font-size: 16px;
+  line-height: 1.8;
+  color: var(--muted-foreground);
+}
+
+.markdown-report h1, .markdown-report h2, .markdown-report h3,
+.markdown-report h4, .markdown-report h5, .markdown-report h6 {
+  font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+  color: var(--foreground);
+  font-weight: 600;
+}
+
+.markdown-report p {
+  margin-bottom: 1.5em;
+}
+
 .markdown-report a[href^="#user-content-fn"] {
   font-size: 0.75em;
   vertical-align: super;
   line-height: 0;
   margin-left: 1px;
   text-decoration: none;
-  color: #2563eb;
+  color: var(--primary);
 }
 
 .markdown-report a[href^="#user-content-fn"]:hover {
   text-decoration: underline;
 }
 
-/* Tweak code blocks for compact research-report look */
 .markdown-report pre {
-  border-radius: 0.5rem;
-  padding: 0.875rem 1rem;
+  border-radius: 12px;
+  padding: 1rem;
   font-size: 0.875rem;
   line-height: 1.6;
   overflow-x: auto;
+  background: var(--secondary);
 }
 
 .markdown-report :not(pre) > code {
-  background-color: rgba(0, 0, 0, 0.05);
+  background-color: var(--secondary);
   padding: 0.1em 0.35em;
   border-radius: 0.25rem;
   font-size: 0.9em;
   font-weight: inherit;
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
 }
 
-/* @tailwindcss/typography auto-inserts literal `` characters around inline
-   <code> via ::before/::after. We already show a gray pill, so drop them. */
 .markdown-report code::before,
 .markdown-report code::after {
   content: none !important;
 }
 
-/* Footnote backref (↩) — give it spacing and a soft style so it reads as a
-   secondary "jump back" affordance rather than visual noise. */
 .markdown-report a[data-footnote-backref] {
   margin-left: 0.4em;
   text-decoration: none;
-  color: #6b7280;
+  color: var(--muted-foreground);
   font-size: 0.85em;
 }
 
 .markdown-report a[data-footnote-backref]:hover {
-  color: #2563eb;
+  color: var(--primary);
 }
 
-/* The auto-generated footnotes <ol> looks better with breathing room and
-   anchor offset (so the citation [^1] click lands above the entry, not
-   right under the sticky nav). */
 .markdown-report [data-footnotes] {
   margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
 }
 
 .markdown-report [data-footnotes] li {
   scroll-margin-top: 5rem;
   padding: 0.25rem 0;
+  font-size: 13px;
+  color: var(--muted-foreground);
 }
 
 .markdown-report sup[id^="user-content-fnref-"],
@@ -72,16 +192,48 @@
   scroll-margin-top: 5rem;
 }
 
-/* Tables — make them readable for comparison data */
 .markdown-report table {
   font-size: 0.9rem;
+  width: 100%;
+  border-collapse: collapse;
 }
+
 .markdown-report th {
-  background-color: #f9fafb;
+  background-color: var(--secondary);
   font-weight: 600;
+  text-align: left;
 }
+
 .markdown-report th,
 .markdown-report td {
-  padding: 0.5rem 0.75rem;
-  border: 1px solid #e5e7eb;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.markdown-report tr:hover td {
+  background-color: var(--secondary);
+}
+
+.markdown-report blockquote {
+  border-left: 3px solid var(--border);
+  padding-left: 1rem;
+  margin-left: 0;
+  color: var(--muted-foreground);
+  font-style: italic;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted-foreground);
 }
