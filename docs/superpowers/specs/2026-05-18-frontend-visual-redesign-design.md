@@ -130,7 +130,7 @@ Dark 模式下阴影使用更高不透明度的黑色：
 ```
 ┌─────────────────────────────────────┐
 │  Sidebar  │        Main              │
-│  (200px)  │     (flex-1)             │
+│ (可拖动)  │     (flex-1)             │
 │           │                          │
 │  · 新研究 │                          │
 │  · 历史   │     [页面内容]            │
@@ -140,14 +140,19 @@ Dark 模式下阴影使用更高不透明度的黑色：
 ```
 
 **Sidebar 规范**：
-- 宽度：200px（固定）
-- 背景：`bg-secondary`
-- 右侧边框：`1px solid var(--border-light)`
-- Logo：左上角，28px Bold，"Coki"
-- 导航项：13px Medium，圆角 12px，padding `8px 12px`
-- Active 状态：`bg-tertiary` + `text-primary`
-- Hover 状态：`bg-tertiary` + `text-primary`
-- 项间距：`space-y-1`
+- **宽度**：默认 220px，最小 160px，最大 320px，用户可通过拖拽右侧边缘自由调整
+- **拖拽手柄**：Sidebar 右边缘 4px 宽的可视拖拽区域，hover 时颜色变为 `accent`，cursor 变为 `col-resize`
+- **自适应**：
+  - 宽版（≥ 220px）：Logo + 文字导航，正常水平排列
+  - 窄版（160–219px）：Logo 隐藏或缩小为图标，导航项仅保留图标（tooltip 显示文字），文字导航项可横向收缩为图标+缩写
+  - 内容区始终 `flex-1` 占满剩余空间
+- **背景**：`bg-secondary`
+- **右侧边框**：`1px solid var(--border-light)`
+- **Logo**：左上角，28px Bold，"Coki"；窄版时隐藏或缩小为 "C" 圆形图标
+- **导航项**：13px Medium，圆角 12px，padding `8px 12px`；窄版时 padding 缩小，文字可隐藏
+- **Active 状态**：`bg-tertiary` + `text-primary`
+- **Hover 状态**：`bg-tertiary` + `text-primary`
+- **项间距**：`space-y-1`
 
 ### Home / 新研究
 
