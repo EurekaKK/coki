@@ -343,3 +343,156 @@ describe("CokiDatabase", () => {
     expect(logs).toEqual([]);
   });
 });
+
+describe("Document RAG tables", () => {
+  let dbDir: string;
+  let db: CokiDatabase;
+
+  beforeEach(() => {
+    dbDir = mkdtempSync(join(tmpdir(), "coki-rag-test-"));
+    db = new CokiDatabase(join(dbDir, "test.db"));
+  });
+
+  afterEach(() => {
+    db.close();
+    rmSync(dbDir, { recursive: true, force: true });
+  });
+
+  it("should create and retrieve a collection", () => {
+    const id = db.createCollection({
+      name: "Test Collection",
+      embeddingProvider: "zhipu",
+      embeddingModel: "embedding-3",
+      embeddingDimension: 512,
+    });
+    const coll = db.getCollection(id);
+    expect(coll).not.toBeNull();
+    expect(coll?.name).toBe("Test Collection");
+    expect(coll?.embedding_provider).toBe("zhipu");
+    expect(coll?.embedding_model).toBe("embedding-3");
+    expect(coll?.embedding_dimension).toBe(512);
+    expect(coll?.chunk_size).toBe(800);
+    expect(coll?.chunk_overlap).toBe(100);
+    expect(coll?.hybrid_alpha).toBe(0.5);
+    expect(coll?.top_k).toBe(10);
+  });
+
+  it("should create and retrieve a document", () => {
+    const collId = db.createCollection({
+      name: "Docs",
+      embeddingProvider: "zhipu",
+      embeddingModel: "embedding-3",
+      embeddingDimension: 512,
+    });
+    const docId = db.createDocument({
+      collectionId: collId,
+      filename: "test.txt",
+      filePath: "/tmp/test.txt",
+    });
+    const doc = db.getDocument(docId);
+    expect(doc).not.toBeNull();
+    expect(doc?.filename).toBe("test.txt");
+    expect(doc?.status).toBe("indexing");
+    expect(doc?.collection_id).toBe(collId);
+  });
+
+  it("should insert and retrieve document chunks", () => {
+    const collId = db.createCollection({
+      name: "Docs",
+      embeddingProvider: "zhipu",
+      embeddingModel: "embedding-3",
+      embeddingDimension: 512,
+    });
+    const docId = db.createDocument({
+      collectionId: collId,
+      filename: "test.txt",
+      filePath: "/tmp/test.txt",
+    });
+    db.insertDocumentChunk({
+      documentId: docId,
+      collectionId: collId,
+      chunkIndex: 0,
+      text: "Hello world",
+      startOffset: 0,
+      endOffset: 11,
+    });
+    db.insertDocumentChunk({
+      documentId: docId,
+      collectionId: collId,
+      chunkIndex: 1,
+      text: "More text",
+      startOffset: 11,
+      endOffset: 20,
+    });
+    const chunks = db.getDocumentChunks(docId);
+    expect(chunks).toHaveLength(2);
+    expect(chunks[0].text).toBe("Hello world");
+    expect(chunks[0].chunk_index).toBe(0);
+    expect(chunks[1].chunk_index).toBe(1);
+  });
+
+  it("should list documents by collection", () => {
+    const collId = db.createCollection({
+      name: "Docs",
+      embeddingProvider: "zhipu",
+      embeddingModel: "embedding-3",
+      embeddingDimension: 512,
+    });
+    db.createDocument({ collectionId: collId, filename: "a.txt", filePath: "/tmp/a.txt" });
+    db.createDocument({ collectionId: collId, filename: "b.txt", filePath: "/tmp/b.txt" });
+
+    const docs = db.listDocumentsByCollection(collId);
+    expect(docs).toHaveLength(2);
+    expect(docs[0].filename).toBe("b.txt"); // reverse chronological
+    expect(docs[1].filename).toBe("a.txt");
+  });
+
+  it("should update document status", () => {
+    const collId = db.createCollection({
+      name: "Docs",
+      embeddingProvider: "zhipu",
+      embeddingModel: "embedding-3",
+      embeddingDimension: 512,
+    });
+    const docId = db.createDocument({
+      collectionId: collId,
+      filename: "test.txt",
+      filePath: "/tmp/test.txt",
+    });
+
+    db.updateDocumentStatus(docId, "ready", undefined, 5);
+    const doc = db.getDocument(docId);
+    expect(doc?.status).toBe("ready");
+    expect(doc?.chunk_count).toBe(5);
+    expect(doc?.indexed_at).toBeTruthy();
+  });
+
+  it("should delete collection and cascade documents", () => {
+    const collId = db.createCollection({
+      name: "Docs",
+      embeddingProvider: "zhipu",
+      embeddingModel: "embedding-3",
+      embeddingDimension: 512,
+    });
+    const docId = db.createDocument({
+      collectionId: collId,
+      filename: "test.txt",
+      filePath: "/tmp/test.txt",
+    });
+    db.insertDocumentChunk({
+      documentId: docId,
+      collectionId: collId,
+      chunkIndex: 0,
+      text: "Hello",
+    });
+
+    expect(db.getDocument(docId)).not.toBeNull();
+    expect(db.getDocumentChunks(docId)).toHaveLength(1);
+
+    db.deleteCollection(collId);
+
+    expect(db.getCollection(collId)).toBeNull();
+    expect(db.getDocument(docId)).toBeNull();
+    expect(db.getDocumentChunks(docId)).toHaveLength(0);
+  });
+});

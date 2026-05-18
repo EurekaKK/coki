@@ -143,4 +143,55 @@ CREATE INDEX IF NOT EXISTS idx_claim_evidence_claim_id ON claim_evidence(claim_i
 CREATE INDEX IF NOT EXISTS idx_claim_evidence_evidence_span_id ON claim_evidence(evidence_span_id);
 `,
   },
+  {
+    version: 4,
+    name: "document_rag",
+    sql: `
+CREATE TABLE IF NOT EXISTS collections (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT,
+  embedding_provider TEXT NOT NULL,
+  embedding_model TEXT NOT NULL,
+  embedding_dimension INTEGER NOT NULL,
+  chunk_size INTEGER NOT NULL DEFAULT 800,
+  chunk_overlap INTEGER NOT NULL DEFAULT 100,
+  hybrid_alpha REAL NOT NULL DEFAULT 0.5,
+  top_k INTEGER NOT NULL DEFAULT 10,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS documents (
+  id TEXT PRIMARY KEY,
+  collection_id TEXT NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+  filename TEXT NOT NULL,
+  file_path TEXT NOT NULL,
+  content_hash TEXT,
+  parser_version TEXT,
+  chunk_count INTEGER,
+  status TEXT NOT NULL DEFAULT 'indexing',
+  indexed_at TEXT,
+  error_message TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS document_chunks (
+  id TEXT PRIMARY KEY,
+  document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+  collection_id TEXT NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+  chunk_index INTEGER NOT NULL,
+  text TEXT NOT NULL,
+  content_hash TEXT,
+  start_offset INTEGER,
+  end_offset INTEGER,
+  created_at TEXT NOT NULL,
+  UNIQUE(document_id, chunk_index)
+);
+
+CREATE INDEX IF NOT EXISTS idx_documents_collection_id ON documents(collection_id);
+CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(status);
+CREATE INDEX IF NOT EXISTS idx_document_chunks_document_id ON document_chunks(document_id);
+CREATE INDEX IF NOT EXISTS idx_document_chunks_collection_id ON document_chunks(collection_id);
+`,
+  },
 ];

@@ -92,6 +92,46 @@ export interface ClaimEvidenceRow {
   created_at: string;
 }
 
+export interface CollectionRow {
+  id: string;
+  name: string;
+  description: string | null;
+  embedding_provider: string;
+  embedding_model: string;
+  embedding_dimension: number;
+  chunk_size: number;
+  chunk_overlap: number;
+  hybrid_alpha: number;
+  top_k: number;
+  created_at: string;
+}
+
+export interface DocumentRow {
+  id: string;
+  collection_id: string;
+  filename: string;
+  file_path: string;
+  content_hash: string | null;
+  parser_version: string | null;
+  chunk_count: number | null;
+  status: string;
+  indexed_at: string | null;
+  error_message: string | null;
+  created_at: string;
+}
+
+export interface DocumentChunkRow {
+  id: string;
+  document_id: string;
+  collection_id: string;
+  chunk_index: number;
+  text: string;
+  content_hash: string | null;
+  start_offset: number | null;
+  end_offset: number | null;
+  created_at: string;
+}
+
 // ---------------------------------------------------------------------------
 // CokiDatabase
 // ---------------------------------------------------------------------------
@@ -433,6 +473,157 @@ export class CokiDatabase {
          WHERE c.run_id = ? ORDER BY ce.created_at`,
       )
       .all(runId) as ClaimEvidenceRow[];
+  }
+
+  // -------------------------------------------------------------------------
+  // Collections
+  // -------------------------------------------------------------------------
+
+  createCollection(params: {
+    name: string;
+    description?: string;
+    embeddingProvider: string;
+    embeddingModel: string;
+    embeddingDimension: number;
+    chunkSize?: number;
+    chunkOverlap?: number;
+    hybridAlpha?: number;
+    topK?: number;
+  }): string {
+    this.checkNotClosed();
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO collections
+          (id, name, description, embedding_provider, embedding_model, embedding_dimension,
+           chunk_size, chunk_overlap, hybrid_alpha, top_k, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        id,
+        params.name,
+        params.description ?? null,
+        params.embeddingProvider,
+        params.embeddingModel,
+        params.embeddingDimension,
+        params.chunkSize ?? 800,
+        params.chunkOverlap ?? 100,
+        params.hybridAlpha ?? 0.5,
+        params.topK ?? 10,
+        now,
+      );
+    return id;
+  }
+
+  listCollections(): CollectionRow[] {
+    this.checkNotClosed();
+    return this.db.prepare("SELECT * FROM collections ORDER BY created_at DESC").all() as CollectionRow[];
+  }
+
+  getCollection(id: string): CollectionRow | null {
+    this.checkNotClosed();
+    const row = this.db.prepare("SELECT * FROM collections WHERE id = ?").get(id) as CollectionRow | undefined;
+    return row ?? null;
+  }
+
+  deleteCollection(id: string): void {
+    this.checkNotClosed();
+    this.db.prepare("DELETE FROM collections WHERE id = ?").run(id);
+  }
+
+  // -------------------------------------------------------------------------
+  // Documents
+  // -------------------------------------------------------------------------
+
+  createDocument(params: {
+    collectionId: string;
+    filename: string;
+    filePath: string;
+    contentHash?: string;
+  }): string {
+    this.checkNotClosed();
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO documents
+          (id, collection_id, filename, file_path, content_hash, status, created_at)
+         VALUES (?, ?, ?, ?, ?, 'indexing', ?)`,
+      )
+      .run(id, params.collectionId, params.filename, params.filePath, params.contentHash ?? null, now);
+    return id;
+  }
+
+  getDocument(id: string): DocumentRow | null {
+    this.checkNotClosed();
+    const row = this.db.prepare("SELECT * FROM documents WHERE id = ?").get(id) as DocumentRow | undefined;
+    return row ?? null;
+  }
+
+  listDocumentsByCollection(collectionId: string): DocumentRow[] {
+    this.checkNotClosed();
+    return this.db.prepare("SELECT * FROM documents WHERE collection_id = ? ORDER BY created_at DESC, ROWID DESC").all(collectionId) as DocumentRow[];
+  }
+
+  updateDocumentStatus(id: string, status: string, errorMessage?: string, chunkCount?: number): void {
+    this.checkNotClosed();
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        "UPDATE documents SET status = ?, error_message = ?, chunk_count = ?, indexed_at = ? WHERE id = ?",
+      )
+      .run(status, errorMessage ?? null, chunkCount ?? null, now, id);
+  }
+
+  deleteDocument(id: string): void {
+    this.checkNotClosed();
+    this.db.prepare("DELETE FROM documents WHERE id = ?").run(id);
+  }
+
+  // -------------------------------------------------------------------------
+  // Document Chunks
+  // -------------------------------------------------------------------------
+
+  insertDocumentChunk(params: {
+    documentId: string;
+    collectionId: string;
+    chunkIndex: number;
+    text: string;
+    contentHash?: string;
+    startOffset?: number;
+    endOffset?: number;
+  }): void {
+    this.checkNotClosed();
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO document_chunks
+          (id, document_id, collection_id, chunk_index, text, content_hash, start_offset, end_offset, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        id,
+        params.documentId,
+        params.collectionId,
+        params.chunkIndex,
+        params.text,
+        params.contentHash ?? null,
+        params.startOffset ?? null,
+        params.endOffset ?? null,
+        now,
+      );
+  }
+
+  getDocumentChunks(documentId: string): DocumentChunkRow[] {
+    this.checkNotClosed();
+    return this.db.prepare("SELECT * FROM document_chunks WHERE document_id = ? ORDER BY chunk_index").all(documentId) as DocumentChunkRow[];
+  }
+
+  deleteDocumentChunks(documentId: string): void {
+    this.checkNotClosed();
+    this.db.prepare("DELETE FROM document_chunks WHERE document_id = ?").run(documentId);
   }
 
   // -------------------------------------------------------------------------
