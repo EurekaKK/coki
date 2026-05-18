@@ -9,6 +9,7 @@ import { api } from "../lib/api";
 import { CostPanel } from "../components/CostPanel";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ChevronLeft, List } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface TocItem {
@@ -63,6 +64,7 @@ export function Report() {
   const [loading, setLoading] = useState(true);
   const [headings, setHeadings] = useState<TocItem[]>([]);
   const [activeId, setActiveId] = useState<string>("");
+  const [tocOpen, setTocOpen] = useState(true);
   const mainRef = useRef<HTMLElement | null>(null);
   const headingMapRef = useRef<Map<string, string>>(new Map());
   const tocIndexRef = useRef(0);
@@ -172,30 +174,56 @@ export function Report() {
     <div className="flex max-w-[1100px] mx-auto px-8 py-12 gap-10">
       {/* Table of Contents */}
       {headings.length > 0 && (
-        <aside className="hidden lg:block w-[220px] shrink-0">
+        <aside
+          className={cn(
+            "hidden lg:block shrink-0 transition-all duration-200",
+            tocOpen ? "w-[220px]" : "w-11",
+          )}
+        >
           <div className="sticky top-8">
-            <h3 className="text-[13px] font-semibold text-muted-foreground uppercase tracking-wider mb-4 px-3">
-              目录
-            </h3>
-            <nav className="space-y-0.5">
-              {headings.map((h) => (
-                <button
-                  key={h.id}
-                  onClick={() => scrollToHeading(h.id)}
-                  className={cn(
-                    "block w-full text-left rounded-lg transition-all duration-150",
-                    h.level === 2
-                      ? "text-[13px] font-medium px-3 py-1.5"
-                      : "text-[12px] px-3 py-1 pl-6",
-                    activeId === h.id
-                      ? "text-primary bg-primary/10"
-                      : "text-muted-foreground hover:text-foreground hover:bg-secondary",
-                  )}
-                >
-                  {h.text}
-                </button>
-              ))}
-            </nav>
+            {tocOpen ? (
+              <>
+                <div className="flex items-center justify-between mb-4 px-3">
+                  <h3 className="text-[13px] font-semibold text-muted-foreground uppercase tracking-wider">
+                    目录
+                  </h3>
+                  <button
+                    onClick={() => setTocOpen(false)}
+                    className="p-1 rounded-md hover:bg-secondary text-muted-foreground transition-colors"
+                    title="收起目录"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                </div>
+                <nav className="space-y-0.5">
+                  {headings.map((h) => (
+                    <button
+                      key={h.id}
+                      onClick={() => scrollToHeading(h.id)}
+                      className={cn(
+                        "block w-full text-left rounded-lg transition-all duration-150",
+                        h.level === 2
+                          ? "text-[13px] font-medium px-3 py-1.5"
+                          : "text-[12px] px-3 py-1 pl-6",
+                        activeId === h.id
+                          ? "text-primary bg-primary/10"
+                          : "text-muted-foreground hover:text-foreground hover:bg-secondary",
+                      )}
+                    >
+                      {h.text}
+                    </button>
+                  ))}
+                </nav>
+              </>
+            ) : (
+              <button
+                onClick={() => setTocOpen(true)}
+                className="w-full flex justify-center p-2 rounded-lg hover:bg-secondary text-muted-foreground transition-colors"
+                title="展开目录"
+              >
+                <List className="w-4 h-4" />
+              </button>
+            )}
           </div>
         </aside>
       )}
