@@ -37,6 +37,7 @@
 :root {
   --background: #ffffff;
   --foreground: #1d1d1f;
+  --text-body: #333333;
   --card: #ffffff;
   --card-foreground: #1d1d1f;
   --popover: #ffffff;
@@ -67,6 +68,7 @@
   :root {
     --background: #000000;
     --foreground: #f5f5f7;
+    --text-body: #d1d1d6;
     --card: #000000;
     --card-foreground: #f5f5f7;
     --popover: #1c1c1e;
@@ -93,7 +95,15 @@
     --shadow-lg: 0 12px 40px rgba(0,0,0,0.5);
   }
 
-  @import "highlight.js/styles/github-dark.css";
+  .hljs {
+    color: #e6edf3;
+    background: #0d1117;
+  }
+  .hljs-keyword, .hljs-selector-tag { color: #ff7b72; }
+  .hljs-string { color: #a5d6ff; }
+  .hljs-number { color: #79c0ff; }
+  .hljs-comment { color: #8b949e; }
+  .hljs-function { color: #d2a8ff; }
 }
 
 @layer base {
@@ -113,7 +123,7 @@
   font-family: 'Noto Serif SC', Georgia, 'Times New Roman', serif;
   font-size: 16px;
   line-height: 1.8;
-  color: var(--muted-foreground);
+  color: var(--text-body);
 }
 
 .markdown-report h1, .markdown-report h2, .markdown-report h3,
