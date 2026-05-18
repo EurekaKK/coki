@@ -12,6 +12,10 @@ import { createSynthesizeNode } from "./pipeline/nodes/synthesize";
 import { createExtractClaimsNode } from "./pipeline/nodes/extract-claims";
 import { createCiteNode } from "./pipeline/nodes/cite";
 import type { PipelineContext } from "./pipeline/context";
+import { DocumentManager } from "./rag/document-manager";
+import { ZhipuEmbeddingProvider, LocalEmbeddingProvider } from "./rag/embeddings";
+import type { EmbeddingProvider } from "./rag/embeddings";
+import { join } from "node:path";
 
 export interface RuntimeSecrets {
   llmApiKey: string;
@@ -24,8 +28,9 @@ export class ResearchEngine {
   private llm: LLMClient;
   private search: TavilySearchProvider | null;
   private activeRuns = new Map<string, AbortController>();
+  private documentManager: DocumentManager | null = null;
 
-  constructor(db: CokiDatabase, configOverrides: ConfigOverrides, secrets: RuntimeSecrets) {
+  constructor(db: CokiDatabase, configOverrides: ConfigOverrides, secrets: RuntimeSecrets, options?: { indexBasePath?: string }) {
     this.db = db;
     this.config = new ConfigManager(configOverrides);
     const llmConfig = this.config.getConfig().llm;
@@ -44,6 +49,27 @@ export class ResearchEngine {
     });
     this.search = secrets.tavilyApiKey ? new TavilySearchProvider(secrets.tavilyApiKey) : null;
 
+    // Initialize DocumentManager if we have an LLM API key for embeddings
+    if (secrets.llmApiKey) {
+      const ragConfig = this.config.getRAGConfig();
+      let embeddingProvider: EmbeddingProvider;
+      if (ragConfig.embeddingProvider === "local") {
+        embeddingProvider = new LocalEmbeddingProvider({
+          dimensions: ragConfig.embeddingDimension,
+          modelName: ragConfig.embeddingModel,
+        });
+      } else {
+        embeddingProvider = new ZhipuEmbeddingProvider({
+          baseUrl: llmConfig.baseUrl,
+          apiKey: secrets.llmApiKey,
+          model: ragConfig.embeddingModel,
+          dimensions: ragConfig.embeddingDimension,
+        });
+      }
+      const indexPath = options?.indexBasePath ?? "/tmp/coki/vectra-indexes";
+      this.documentManager = new DocumentManager(db, indexPath, embeddingProvider);
+    }
+
     // Persist LLM call records to database
     this.llm.onCall((record) => {
       if (!record.runId) return;
@@ -58,10 +84,14 @@ export class ResearchEngine {
     });
   }
 
+  getDocumentManager(): DocumentManager | null {
+    return this.documentManager;
+  }
+
   async *runResearch(
     query: string,
     depth: 1 | 2 | 3,
-    options?: { outputLanguage?: "zh" | "en"; signal?: AbortSignal; runId?: string }
+    options?: { outputLanguage?: "zh" | "en"; signal?: AbortSignal; runId?: string; collectionId?: string }
   ): AsyncGenerator<PipelineEvent> {
     const runId = this.db.createRun(query, depth, options?.runId);
     const controller = new AbortController();
@@ -144,6 +174,7 @@ export class ResearchEngine {
       citedReport: null,
       evidenceSpans: [],
       claims: [],
+      collectionId: options?.collectionId,
     };
 
     try {

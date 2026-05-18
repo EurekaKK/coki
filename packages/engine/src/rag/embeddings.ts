@@ -89,7 +89,7 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
     const results: number[][] = [];
 
     for (const text of texts) {
-      const output = await pipe(text, { pooling: "mean", normalize: true });
+      const output = await pipe([text], { pooling: "mean", normalize: true });
       const arr = Array.from(output.data);
       results.push(arr);
     }

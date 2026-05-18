@@ -37,10 +37,21 @@ export interface TavilyConfig {
   apiKey: string | null;
 }
 
+export interface RAGConfig {
+  embeddingProvider: "zhipu" | "local";
+  embeddingModel: string;
+  embeddingDimension: number;
+  chunkSize: number;
+  chunkOverlap: number;
+  hybridAlpha: number;
+  topK: number;
+}
+
 export interface CokiConfig {
   llm: LLMConfig;
   research: ResearchConfig;
   tavily: TavilyConfig;
+  rag: RAGConfig;
   roles: Record<string, Partial<RoleConfig>>;
 }
 
@@ -48,6 +59,7 @@ export type ConfigOverrides = Partial<{
   llm: Partial<LLMConfig>;
   research: Partial<ResearchConfig>;
   tavily: Partial<TavilyConfig>;
+  rag: Partial<RAGConfig>;
   roles: Record<string, Partial<RoleConfig>>;
 }>;
 
@@ -100,6 +112,16 @@ const DEFAULT_RESEARCH: ResearchConfig = {
 
 const DEFAULT_TAVILY: TavilyConfig = {
   apiKey: null,
+};
+
+const DEFAULT_RAG: RAGConfig = {
+  embeddingProvider: "zhipu",
+  embeddingModel: "embedding-3",
+  embeddingDimension: 512,
+  chunkSize: 800,
+  chunkOverlap: 100,
+  hybridAlpha: 0.5,
+  topK: 10,
 };
 
 // 7 roles with sensible defaults
@@ -224,6 +246,10 @@ export class ConfigManager {
         { ...DEFAULT_TAVILY },
         (overrides.tavily ?? {}) as Partial<TavilyConfig>,
       ),
+      rag: deepMerge(
+        { ...DEFAULT_RAG },
+        (overrides.rag ?? {}) as Partial<RAGConfig>,
+      ),
       roles: mergedRoles,
     };
     this.userRoles = this.config.roles;
@@ -252,6 +278,11 @@ export class ConfigManager {
     return profile;
   }
 
+  /** Return the RAG configuration. */
+  getRAGConfig(): RAGConfig {
+    return this.config.rag;
+  }
+
   /** Apply a partial config patch at runtime (mutates in place). */
   updateConfig(patch: ConfigOverrides): void {
     if (patch.llm) {
@@ -259,6 +290,9 @@ export class ConfigManager {
     }
     if (patch.research) {
       Object.assign(this.config.research, patch.research);
+    }
+    if (patch.rag) {
+      Object.assign(this.config.rag, patch.rag);
     }
     if (patch.roles) {
       for (const [name, rolePatch] of Object.entries(patch.roles)) {

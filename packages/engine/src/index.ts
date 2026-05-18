@@ -47,3 +47,24 @@ export type { RuntimeSecrets } from "./engine";
 
 export { addCitations, verifyCitations } from "./citation/citation";
 export type { CitedSource, CitationResult, VerificationResult } from "./citation/citation";
+
+export {
+  DocumentManager,
+  parseDocument,
+  chunkText,
+  ZhipuEmbeddingProvider,
+  LocalEmbeddingProvider,
+  VectraStore,
+} from "./rag";
+export type {
+  ParsedDocument,
+  TextChunk,
+  ChunkOptions,
+  EmbeddingProvider,
+  ZhipuEmbeddingConfig,
+  LocalEmbeddingConfig,
+  VectorSearchResult,
+  VectraStoreConfig,
+  CreateCollectionParams,
+  ChunkSearchResult,
+} from "./rag";

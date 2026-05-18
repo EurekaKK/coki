@@ -1,6 +1,6 @@
 import { LocalIndex } from "vectra";
 
-export interface SearchResult {
+export interface VectorSearchResult {
   documentId: string;
   text: string;
   score: number;
@@ -27,8 +27,6 @@ export class VectraStore {
     const exists = await this.index.isIndexCreated();
     if (!exists) {
       await this.index.createIndex({ version: 1 });
-    } else {
-      await this.index.loadIndexData();
     }
   }
 
@@ -50,7 +48,7 @@ export class VectraStore {
     }
   }
 
-  async search(queryText: string, queryVector: number[]): Promise<SearchResult[]> {
+  async search(queryText: string, queryVector: number[]): Promise<VectorSearchResult[]> {
     if (!this.index) throw new Error("VectraStore not open");
     try {
       const results = await this.index.queryItems(
@@ -62,7 +60,7 @@ export class VectraStore {
       );
       return results.map((r) => ({
         documentId: (r.item.metadata as { documentId: string }).documentId,
-        text: r.item.metadata?.text as string ?? "",
+        text: (r.item.metadata?.text as string) ?? "",
         score: r.score,
       }));
     } catch (err) {
@@ -76,7 +74,7 @@ export class VectraStore {
       );
       return results.map((r) => ({
         documentId: (r.item.metadata as { documentId: string }).documentId,
-        text: r.item.metadata?.text as string ?? "",
+        text: (r.item.metadata?.text as string) ?? "",
         score: r.score,
       }));
     }

@@ -19,6 +19,8 @@ export interface CreateCollectionParams {
   topK?: number;
 }
 
+import type { VectorSearchResult } from "./vectra-store";
+
 export interface ChunkSearchResult {
   documentId: string;
   chunkIndex: number;
@@ -153,7 +155,7 @@ export class DocumentManager {
 
     const store = await this.getStore(collectionId, collection.hybrid_alpha, topK ?? collection.top_k);
     const queryEmbedding = await this.embeddingProvider.embed([query]);
-    const results = await store.search(query, queryEmbedding[0]);
+    const results: VectorSearchResult[] = await store.search(query, queryEmbedding[0]);
 
     return results.map((r) => {
       const [documentId, chunkIndexStr] = r.documentId.split("#");
