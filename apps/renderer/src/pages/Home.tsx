@@ -16,6 +16,8 @@ export function Home() {
   const [query, setQuery] = useState("");
   const [depth, setDepth] = useState(2);
   const [mounted, setMounted] = useState(false);
+  const [collections, setCollections] = useState<Array<{ id: string; name: string }>>([]);
+  const [selectedCollection, setSelectedCollection] = useState<string>("");
   const navigate = useNavigate();
   const { setCurrentRunId, setIsRunning, reset } = useAppStore();
 
@@ -24,11 +26,18 @@ export function Home() {
     return () => clearTimeout(timer);
   }, []);
 
+  useEffect(() => {
+    api.documents.getCollections().then(setCollections);
+  }, []);
+
   const handleStart = async () => {
     if (!query.trim()) return;
     reset();
     setIsRunning(true);
-    const runId = await api.research.start(query, { depth });
+    const runId = await api.research.start(query, {
+      depth,
+      collectionId: selectedCollection || undefined,
+    });
     setCurrentRunId(runId);
     navigate(`/dashboard/${runId}`);
   };
@@ -83,6 +92,28 @@ export function Home() {
           </button>
         ))}
       </div>
+
+      {/* Collection selector */}
+      {collections.length > 0 && (
+        <div
+          className={cn(
+            "w-full mt-4 transition-all duration-500 ease-out delay-300",
+            mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4",
+          )}
+        >
+          <label className="text-sm font-medium text-muted-foreground mb-2 block">关联知识库（可选）</label>
+          <select
+            className="w-full rounded-xl border bg-background px-3 py-2.5 text-sm"
+            value={selectedCollection}
+            onChange={(e) => setSelectedCollection(e.target.value)}
+          >
+            <option value="">不关联知识库</option>
+            {collections.map((c) => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* Start button */}
       <div

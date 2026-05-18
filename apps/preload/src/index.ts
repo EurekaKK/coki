@@ -3,7 +3,7 @@ const { contextBridge, ipcRenderer } = electron;
 
 const api = {
   research: {
-    start: (query: string, options?: { depth?: number; outputLanguage?: string }) =>
+    start: (query: string, options?: { depth?: number; outputLanguage?: string; collectionId?: string }) =>
       ipcRenderer.invoke("research:start", query, options),
     cancel: (runId: string) =>
       ipcRenderer.invoke("research:cancel", runId),

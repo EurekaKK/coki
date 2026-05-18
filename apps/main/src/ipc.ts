@@ -15,7 +15,7 @@ export function registerIPCHandlers(
   documentManager: DocumentManager | null,
 ): void {
   // Research
-  ipcMain.handle("research:start", async (_event, query: string, options?: { depth?: number; outputLanguage?: string }) => {
+  ipcMain.handle("research:start", async (_event, query: string, options?: { depth?: number; outputLanguage?: string; collectionId?: string }) => {
     const runId = crypto.randomUUID();
     const mainWindow = getMainWindow();
 
@@ -23,6 +23,7 @@ export function registerIPCHandlers(
     const gen = engine.runResearch(query, (options?.depth ?? 2) as 1 | 2 | 3, {
       outputLanguage: (options?.outputLanguage ?? "zh") as "zh" | "en",
       runId,
+      collectionId: options?.collectionId,
     });
 
     (async () => {
