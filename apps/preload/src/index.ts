@@ -27,6 +27,21 @@ const api = {
     update: (patch: Record<string, unknown>) =>
       ipcRenderer.invoke("config:update", patch),
   },
+  documents: {
+    getCollections: () => ipcRenderer.invoke("documents:getCollections"),
+    createCollection: (name: string, description?: string) =>
+      ipcRenderer.invoke("documents:createCollection", name, description),
+    deleteCollection: (id: string) =>
+      ipcRenderer.invoke("documents:deleteCollection", id),
+    getDocuments: (collectionId: string) =>
+      ipcRenderer.invoke("documents:getDocuments", collectionId),
+    importFiles: (collectionId: string) =>
+      ipcRenderer.invoke("documents:importFiles", collectionId),
+    deleteDocument: (documentId: string) =>
+      ipcRenderer.invoke("documents:deleteDocument", documentId),
+    search: (collectionId: string, query: string) =>
+      ipcRenderer.invoke("documents:search", collectionId, query),
+  },
   on: {
     researchProgress: (callback: (event: unknown) => void) => {
       const handler = (_event: unknown, data: unknown) => callback(data);
