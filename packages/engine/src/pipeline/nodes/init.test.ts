@@ -10,8 +10,14 @@ function makeCtx(overrides: Partial<PipelineContext> = {}): PipelineContext {
     outputLanguage: "en",
     plan: {
       dimensions: ["history", "applications"],
-      outputStructure: "essay",
+      outputStructure: ["history", "applications"],
       methodology: "survey",
+      requirements: {
+        coreObjectives: [],
+        explicitRequirements: [],
+        scopeConstraints: {},
+        subQuestions: [],
+      },
     },
     subtasks: [
       { id: "st-1", instruction: "Research history", keywords: ["history"] },

@@ -13,14 +13,12 @@ export interface LLMConfig {
   baseUrl: string;
   apiKey: string | null;
   model: string;
-  temperature: number;
   maxTokens: number;
   thinking: boolean;
 }
 
 export interface RoleConfig {
   model: string;
-  temperature: number;
 }
 
 export interface ResearchConfig {
@@ -31,7 +29,6 @@ export interface ResearchConfig {
   maxSubagents: number;
   searchBudgetPerSubagent: number;
   reactMaxSteps: number;
-  maxSearchRounds: number;
   continuationMaxRounds: number;
   maxInputChars: number;
 }
@@ -58,12 +55,23 @@ export interface DepthProfile {
   maxSubagents: number;
   searchBudgetPerSubagent: number;
   reactMaxSteps: number;
-  maxSearchRounds: number;
   maxIterations: number;
   plannerUseReact: boolean;
   useSplitter: boolean;
   continuationMaxRounds: number;
   maxInputChars: number;
+  /** When true, run the deepen node after synthesis to expand thin sections. */
+  deepenThinSections: boolean;
+  /** Max number of sections to deepen in one pass. */
+  maxDeepenSections: number;
+  /** Parallelism for the deepen pass. */
+  deepenConcurrency: number;
+  /** Section content shorter than this (chars) is considered thin. */
+  deepenCharThreshold: number;
+  /** Section with fewer than this many [src:] markers is considered thin. */
+  deepenCitationThreshold: number;
+  /** When true, subagent calls the evaluate_sources tool before fetching. */
+  useSourceEvaluation: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -74,7 +82,6 @@ const DEFAULT_LLM: LLMConfig = {
   baseUrl: "",
   apiKey: null,
   model: "",
-  temperature: 0.7,
   maxTokens: 4096,
   thinking: false,
 };
@@ -82,12 +89,11 @@ const DEFAULT_LLM: LLMConfig = {
 const DEFAULT_RESEARCH: ResearchConfig = {
   depth: 2,
   outputLanguage: "zh",
-  qualityThreshold: 0.7,
+  qualityThreshold: 0.8,
   maxIterations: 2,
   maxSubagents: 4,
   searchBudgetPerSubagent: 8,
   reactMaxSteps: 12,
-  maxSearchRounds: 5,
   continuationMaxRounds: 3,
   maxInputChars: 60000,
 };
@@ -98,13 +104,13 @@ const DEFAULT_TAVILY: TavilyConfig = {
 
 // 7 roles with sensible defaults
 const DEFAULT_ROLES: Record<string, RoleConfig> = {
-  planner:    { model: "", temperature: 0.4 },
-  splitter:   { model: "", temperature: 0.3 },
-  subagent:   { model: "", temperature: 0.7 },
-  evaluator:  { model: "", temperature: 0.2 },
-  reflection: { model: "", temperature: 0.5 },
-  synthesis:  { model: "", temperature: 0.5 },
-  citation:   { model: "", temperature: 0.1 },
+  planner:    { model: "" },
+  splitter:   { model: "" },
+  subagent:   { model: "" },
+  evaluator:  { model: "" },
+  reflection: { model: "" },
+  synthesis:  { model: "" },
+  citation:   { model: "" },
 };
 
 // 3 depth profiles: 1 = quick, 2 = balanced, 3 = deep
@@ -113,34 +119,49 @@ const DEPTH_PROFILES: Record<number, DepthProfile> = {
     maxSubagents: 2,
     searchBudgetPerSubagent: 4,
     reactMaxSteps: 8,
-    maxSearchRounds: 3,
     maxIterations: 1,
     plannerUseReact: false,
     useSplitter: false,
     continuationMaxRounds: 1,
     maxInputChars: 30000,
+    deepenThinSections: false,
+    maxDeepenSections: 0,
+    deepenConcurrency: 1,
+    deepenCharThreshold: 0,
+    deepenCitationThreshold: 0,
+    useSourceEvaluation: false,
   },
   2: {
     maxSubagents: 4,
     searchBudgetPerSubagent: 8,
     reactMaxSteps: 12,
-    maxSearchRounds: 5,
     maxIterations: 2,
     plannerUseReact: true,
     useSplitter: true,
     continuationMaxRounds: 3,
     maxInputChars: 60000,
+    deepenThinSections: true,
+    maxDeepenSections: 5,
+    deepenConcurrency: 3,
+    deepenCharThreshold: 800,
+    deepenCitationThreshold: 3,
+    useSourceEvaluation: true,
   },
   3: {
     maxSubagents: 8,
     searchBudgetPerSubagent: 15,
     reactMaxSteps: 18,
-    maxSearchRounds: 8,
     maxIterations: 3,
     plannerUseReact: true,
     useSplitter: true,
     continuationMaxRounds: 5,
     maxInputChars: 120000,
+    deepenThinSections: true,
+    maxDeepenSections: 8,
+    deepenConcurrency: 5,
+    deepenCharThreshold: 600,
+    deepenCitationThreshold: 3,
+    useSourceEvaluation: true,
   },
 };
 
@@ -213,13 +234,12 @@ export class ConfigManager {
     return this.config;
   }
 
-  /** Return role-specific LLM settings, falling back to the global llm.model / temperature. */
+  /** Return role-specific LLM settings, falling back to the global llm.model. */
   getRole(role: string): RoleConfig {
     const userRole = this.userRoles[role];
     const defaultRole = DEFAULT_ROLES[role];
     return {
       model: userRole?.model ?? defaultRole?.model ?? this.config.llm.model,
-      temperature: userRole?.temperature ?? defaultRole?.temperature ?? this.config.llm.temperature,
     };
   }
 

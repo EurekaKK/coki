@@ -20,7 +20,7 @@ const SRC_PATTERN = /\[src:\s*((?:https?)[^\]\)]*)\]?[)]?/g;
 // Match empty/orphaned [src: ] markers (no URL)
 const EMPTY_SRC_PATTERN = /\[src:\s*\]/g;
 
-function normalizeUrl(url: string): string {
+export function normalizeUrl(url: string): string {
   // Strip trailing punctuation
   url = url.replace(/[),.;:!?]+$/, "");
   // Remove #:~:text= anchors
@@ -28,15 +28,29 @@ function normalizeUrl(url: string): string {
   return url;
 }
 
+/**
+ * Escape characters that have special meaning inside markdown link text.
+ */
+function escapeLinkText(text: string): string {
+  return text
+    .replace(/\\/g, "\\\\")
+    .replace(/\[/g, "\\[")
+    .replace(/\]/g, "\\]");
+}
+
 function stripExistingReferences(report: string): string {
   // Remove existing References/Sources/Bibliography sections
   return report.replace(
-    /\n##\s*(References|Sources|Bibliography|参考文献|来源)\s*\n[\s\S]*$/i,
+    /\n##\s*(References|Sources|Bibliography|参考文献|来源|脚注|Footnotes)\s*\n[\s\S]*$/i,
     "",
   );
 }
 
-export function addCitations(report: string): CitationResult {
+export function addCitations(
+  report: string,
+  /** Optional map from URL (raw or normalized) to a human-readable title. */
+  titleByUrl?: Map<string, string>,
+): CitationResult {
   // Strip existing reference sections
   let cleaned = stripExistingReferences(report);
 
@@ -71,15 +85,38 @@ export function addCitations(report: string): CitationResult {
     return refNum ? `[^${refNum}]` : "";
   });
 
-  // Build references section
+  // Emit footnote DEFINITIONS only. remark-gfm will auto-collect them into
+  // its own footnotes section at the end of the document — we don't need
+  // (and must not provide) a heading, otherwise we get an empty References
+  // section AND a duplicate auto-generated Footnotes section.
   if (sources.length > 0) {
-    const referencesSection = sources
-      .map((s) => `[^${s.id}]: ${s.url}`)
+    const definitions = sources
+      .map((s) => {
+        const title = lookupTitle(titleByUrl, s.url);
+        if (title) {
+          return `[^${s.id}]: [${escapeLinkText(title)}](${s.url})`;
+        }
+        return `[^${s.id}]: <${s.url}>`;
+      })
       .join("\n");
-    cleaned += `\n\n## References\n${referencesSection}`;
+    cleaned += `\n\n${definitions}`;
   }
 
   return { citedReport: cleaned.trim(), sources };
+}
+
+function lookupTitle(
+  titleByUrl: Map<string, string> | undefined,
+  normalizedUrl: string,
+): string | undefined {
+  if (!titleByUrl) return undefined;
+  const direct = titleByUrl.get(normalizedUrl);
+  if (direct) return direct;
+  // Try raw URL variants the caller might have keyed with
+  for (const [k, v] of titleByUrl) {
+    if (normalizeUrl(k) === normalizedUrl) return v;
+  }
+  return undefined;
 }
 
 // ---------------------------------------------------------------------------

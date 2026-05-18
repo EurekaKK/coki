@@ -20,16 +20,6 @@ export function History() {
     });
   }, []);
 
-  const handleRerun = async (e: React.MouseEvent, runId: string) => {
-    e.stopPropagation();
-    try {
-      const newRunId = await api.research.rerun(runId, "full");
-      navigate(`/dashboard/${newRunId}`);
-    } catch (err) {
-      console.error("Re-run failed:", err);
-    }
-  };
-
   return (
     <div className="p-8">
       <h2 className="text-2xl font-bold mb-6">Research History</h2>
@@ -69,12 +59,6 @@ export function History() {
                     }}
                   >
                     Timeline
-                  </button>
-                  <button
-                    className="text-blue-500 hover:text-blue-700 text-xs underline"
-                    onClick={(e) => handleRerun(e, run.id)}
-                  >
-                    Re-run
                   </button>
                 </>
               )}

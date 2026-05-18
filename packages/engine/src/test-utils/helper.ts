@@ -77,7 +77,6 @@ export function createTestLLMClient(): LLMClient {
     baseUrl: cfg.baseUrl,
     apiKey,
     model: cfg.model,
-    temperature: cfg.temperature,
     maxTokens: cfg.maxTokens,
     thinking: cfg.thinking,
   });

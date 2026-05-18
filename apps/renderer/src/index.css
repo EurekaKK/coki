@@ -1,1 +1,87 @@
 @import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+@import "katex/dist/katex.min.css";
+@import "highlight.js/styles/github.css";
+
+/* Make footnote refs (citations) visually distinct */
+.markdown-report a[href^="#user-content-fn"] {
+  font-size: 0.75em;
+  vertical-align: super;
+  line-height: 0;
+  margin-left: 1px;
+  text-decoration: none;
+  color: #2563eb;
+}
+
+.markdown-report a[href^="#user-content-fn"]:hover {
+  text-decoration: underline;
+}
+
+/* Tweak code blocks for compact research-report look */
+.markdown-report pre {
+  border-radius: 0.5rem;
+  padding: 0.875rem 1rem;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  overflow-x: auto;
+}
+
+.markdown-report :not(pre) > code {
+  background-color: rgba(0, 0, 0, 0.05);
+  padding: 0.1em 0.35em;
+  border-radius: 0.25rem;
+  font-size: 0.9em;
+  font-weight: inherit;
+}
+
+/* @tailwindcss/typography auto-inserts literal `` characters around inline
+   <code> via ::before/::after. We already show a gray pill, so drop them. */
+.markdown-report code::before,
+.markdown-report code::after {
+  content: none !important;
+}
+
+/* Footnote backref (↩) — give it spacing and a soft style so it reads as a
+   secondary "jump back" affordance rather than visual noise. */
+.markdown-report a[data-footnote-backref] {
+  margin-left: 0.4em;
+  text-decoration: none;
+  color: #6b7280;
+  font-size: 0.85em;
+}
+
+.markdown-report a[data-footnote-backref]:hover {
+  color: #2563eb;
+}
+
+/* The auto-generated footnotes <ol> looks better with breathing room and
+   anchor offset (so the citation [^1] click lands above the entry, not
+   right under the sticky nav). */
+.markdown-report [data-footnotes] {
+  margin-top: 2rem;
+}
+
+.markdown-report [data-footnotes] li {
+  scroll-margin-top: 5rem;
+  padding: 0.25rem 0;
+}
+
+.markdown-report sup[id^="user-content-fnref-"],
+.markdown-report sup > a[href^="#user-content-fn-"] {
+  scroll-margin-top: 5rem;
+}
+
+/* Tables — make them readable for comparison data */
+.markdown-report table {
+  font-size: 0.9rem;
+}
+.markdown-report th {
+  background-color: #f9fafb;
+  font-weight: 600;
+}
+.markdown-report th,
+.markdown-report td {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #e5e7eb;
+}

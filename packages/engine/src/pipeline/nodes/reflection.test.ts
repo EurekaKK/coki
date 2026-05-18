@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { createReflectionNode } from "./reflection";
 import { createTestLLMClient } from "../../test-utils/helper";
+import { ConfigManager } from "../../config/config";
 import type { PipelineContext, SubagentReport } from "../context";
 
 const mockReports: SubagentReport[] = [
@@ -37,9 +38,10 @@ function makeCtx(reports: SubagentReport[]): PipelineContext {
 
 describe("Reflection Node", () => {
   const llm = createTestLLMClient();
+  const profile = new ConfigManager({}).getDepthProfile(2);
 
   it("evaluates reports and returns quality score", async () => {
-    const node = createReflectionNode(llm);
+    const node = createReflectionNode(llm, profile);
     const ctx = await node(makeCtx(mockReports));
 
     expect(ctx.qualityScore).toBeGreaterThanOrEqual(0);
@@ -48,7 +50,7 @@ describe("Reflection Node", () => {
   });
 
   it("skips evaluation when max iterations reached", async () => {
-    const node = createReflectionNode(llm);
+    const node = createReflectionNode(llm, profile);
     const ctx = await node({
       ...makeCtx(mockReports),
       iterationCount: 2,

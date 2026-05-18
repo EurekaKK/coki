@@ -8,7 +8,7 @@
 import { randomUUID } from "node:crypto";
 import type { PipelineContext } from "../context";
 import type { CokiDatabase } from "../../db/database";
-import { addCitations, verifyCitations } from "../../citation/citation";
+import { addCitations, normalizeUrl, verifyCitations } from "../../citation/citation";
 import { pipelineLogger } from "../../logger";
 
 // ---------------------------------------------------------------------------
@@ -39,7 +39,18 @@ export function createCiteNode(db: CokiDatabase) {
       return { ...ctx, error: "No report to cite" };
     }
 
-    const { citedReport, sources } = addCitations(ctx.report);
+    // Build URL -> Title map from sub-agent SourceRecord pool so the rendered
+    // footnote definitions show a human-readable title, not bare URLs.
+    const titleByUrl = new Map<string, string>();
+    for (const src of ctx.sources.values()) {
+      if (!src.url || !src.title) continue;
+      const title = src.title.trim();
+      if (!title) continue;
+      const key = normalizeUrl(src.url);
+      if (!titleByUrl.has(key)) titleByUrl.set(key, title);
+    }
+
+    const { citedReport, sources } = addCitations(ctx.report, titleByUrl);
 
     // Check URL liveness concurrently for all sources
     const livenessResults = await Promise.all(

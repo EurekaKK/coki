@@ -1,7 +1,20 @@
 import type { LLMClient, ToolDef, GenerateResult } from "../llm/client";
 import type { TavilySearchProvider } from "../search/tavily";
-import type { SubagentReport, SourceRecord, EvidenceSpan } from "../pipeline/context";
-import { SUBAGENT_SYSTEM_PROMPT, SUBAGENT_REPORT_PROMPT } from "./prompts";
+import type {
+  SubagentReport,
+  SourceRecord,
+  EvidenceSpan,
+  Subtask,
+  ResearchRequirements,
+} from "../pipeline/context";
+import {
+  buildSubagentSystemPrompt,
+  SUBAGENT_USER_TEMPLATE,
+  SUBAGENT_REPORT_FALLBACK_PROMPT,
+  SOURCE_EVALUATE_PROMPT,
+} from "./prompts";
+import { parseJsonFromText } from "../utils/parse-json";
+import { formatRequirements as formatRequirementsBlock } from "../utils/format-requirements";
 import { randomUUID } from "node:crypto";
 import { toolLogger } from "../logger";
 
@@ -18,7 +31,6 @@ function splitIntoSpans(content: string, maxChars: number): Array<{ text: string
     if (trimmed.length <= maxChars) {
       spans.push({ text: trimmed, start: offset, end: offset + trimmed.length });
     } else {
-      // Split long paragraphs into chunks
       for (let i = 0; i < trimmed.length; i += maxChars) {
         const chunk = trimmed.slice(i, i + maxChars);
         spans.push({ text: chunk, start: offset + i, end: offset + i + chunk.length });
@@ -29,21 +41,68 @@ function splitIntoSpans(content: string, maxChars: number): Array<{ text: string
   return spans;
 }
 
+function domainOf(url: string): string | null {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return null;
+  }
+}
+
+const QUERY_STRIP_TOKENS = new Set([
+  "research", "paper", "study", "pdf", "github", "source", "code",
+  "repository", "official", "documentation", "site:.gov", ".gov",
+  "latest", "2024", "2025", "2026", "report",
+]);
+
+function broadenQuery(original: string): string | null {
+  const tokens = original.split(/\s+/).filter(Boolean);
+  if (tokens.length < 2) return null;
+
+  const stripped = tokens.filter((t) => !QUERY_STRIP_TOKENS.has(t.toLowerCase()));
+  if (stripped.length && stripped.length < tokens.length) {
+    return stripped.join(" ");
+  }
+
+  // Drop the last token as fallback
+  return tokens.slice(0, -1).join(" ");
+}
+
+function wordTargets(depth: 1 | 2 | 3): { min: number; max: number } {
+  if (depth === 1) return { min: 400, max: 800 };
+  if (depth === 3) return { min: 1500, max: 3000 };
+  return { min: 800, max: 1500 };
+}
+
+function formatRequirements(req?: ResearchRequirements): string {
+  if (!req) return "";
+  const block = formatRequirementsBlock(req);
+  if (block === "(none extracted)") return "";
+  return `\nUser requirements (must be respected):\n${block}\n`;
+}
+
 export interface AgentConfig {
   maxSteps: number;
   maxSearchCalls: number;
   maxFetchCalls: number;
   maxToolErrors: number;
   timeoutMs: number;
+  /** When true, allow a one-shot broader-query fallback on empty search results. */
+  allowQueryFallback?: boolean;
+  /** Max results per domain across the subagent run. */
+  maxResultsPerDomain?: number;
+  /** When true, expose the evaluate_sources tool to the subagent. */
+  useSourceEvaluation?: boolean;
 }
 
 export async function runSubagent(
-  subtaskId: string,
-  instruction: string,
+  subtask: Subtask,
   llm: LLMClient,
   search: TavilySearchProvider,
   config: AgentConfig,
-  language: "zh" | "en" = "zh",
+  language: "zh" | "en",
+  depth: 1 | 2 | 3,
+  requirements: ResearchRequirements | undefined,
   signal?: AbortSignal,
   runId?: string,
 ): Promise<SubagentReport> {
@@ -54,12 +113,17 @@ export async function runSubagent(
   let searchCount = 0;
   let fetchCount = 0;
   const seenUrls = new Set<string>();
+  const domainCounts = new Map<string, number>();
+  const maxPerDomain = config.maxResultsPerDomain ?? 3;
+  const allowFallback = config.allowQueryFallback ?? true;
+  const triedFallback = new Set<string>();
 
-  // Tool definitions in Anthropic format
+  const useEvaluate = config.useSourceEvaluation === true;
+
   const toolDefs: ToolDef[] = [
     {
       name: "tavily_search",
-      description: "Search the web for information using Tavily. Use specific, focused queries.",
+      description: "Search the web for information. Use specific, focused queries.",
       input_schema: {
         type: "object" as const,
         properties: {
@@ -70,7 +134,7 @@ export async function runSubagent(
     },
     {
       name: "tavily_extract",
-      description: "Extract full content from specific URLs found in search results.",
+      description: "Extract full content from specific URLs found in previous search results.",
       input_schema: {
         type: "object" as const,
         properties: {
@@ -85,7 +149,60 @@ export async function runSubagent(
     },
   ];
 
-  // Tool execution handlers
+  if (useEvaluate) {
+    toolDefs.push({
+      name: "evaluate_sources",
+      description: "Rate candidate search results (relevance, authority, density) and pick which deserve full-text extraction. Call this AFTER tavily_search and BEFORE tavily_extract.",
+      input_schema: {
+        type: "object" as const,
+        properties: {
+          sources: {
+            type: "array",
+            description: "Candidate sources from previous searches",
+            items: {
+              type: "object",
+              properties: {
+                url: { type: "string" },
+                title: { type: "string" },
+                snippet: { type: "string" },
+              },
+              required: ["url"],
+            },
+          },
+        },
+        required: ["sources"],
+      },
+    });
+  }
+
+  async function runSearch(query: string): Promise<Array<{ title: string; url: string; snippet: string }>> {
+    const results = await search.search(query, { maxResults: 5 });
+    const filtered: Array<{ title: string; url: string; snippet: string }> = [];
+    for (const r of results) {
+      if (seenUrls.has(r.url)) continue;
+      const domain = domainOf(r.url);
+      if (domain) {
+        const count = domainCounts.get(domain) ?? 0;
+        if (count >= maxPerDomain) {
+          log?.debug({ url: r.url, domain }, "tavily_search: domain cap reached, skipping");
+          continue;
+        }
+        domainCounts.set(domain, count + 1);
+      }
+      seenUrls.add(r.url);
+      sources.push({
+        id: randomUUID(),
+        sourceType: "web",
+        url: r.url,
+        title: r.title,
+        snippet: r.snippet,
+        fetchStatus: "ok",
+      });
+      filtered.push({ title: r.title, url: r.url, snippet: r.snippet });
+    }
+    return filtered;
+  }
+
   async function executeTool(
     name: string,
     input: Record<string, unknown>,
@@ -99,33 +216,87 @@ export async function runSubagent(
       searchCount++;
       log?.info({ query, searchCount }, "tavily_search: executing");
       try {
-        const results = await search.search(query, { maxResults: 5 });
-        const newResults = results.filter((r) => !seenUrls.has(r.url));
-        for (const r of newResults) {
-          seenUrls.add(r.url);
-          sources.push({
-            id: randomUUID(),
-            sourceType: "web",
-            url: r.url,
-            title: r.title,
-            snippet: r.snippet,
-            fetchStatus: "ok",
-          });
+        let results = await runSearch(query);
+
+        if (results.length === 0 && allowFallback && !triedFallback.has(query)) {
+          const broader = broadenQuery(query);
+          if (broader && broader !== query && !triedFallback.has(broader)) {
+            triedFallback.add(query);
+            triedFallback.add(broader);
+            log?.info({ original: query, broader }, "tavily_search: empty, retrying with broader query");
+            results = await runSearch(broader);
+          }
         }
-        log?.debug({ query, results }, "tavily_search: raw results");
+
         log?.info({
           query,
           resultCount: results.length,
-          newCount: newResults.length,
         }, "tavily_search: done");
-        return newResults.map((r) => ({
-          title: r.title,
-          url: r.url,
-          snippet: r.snippet,
-        }));
+        return results;
       } catch (error) {
-        log?.error({ query, error }, "tavily_search: failed");
-        return { error: String(error) };
+        const errMsg = error instanceof Error ? error.message : String(error);
+        log?.error({ query, errMsg }, "tavily_search: failed");
+        return { error: errMsg };
+      }
+    }
+
+    if (name === "evaluate_sources") {
+      const candidates = (input.sources as Array<{ url: string; title?: string; snippet?: string }>) ?? [];
+      if (candidates.length === 0) {
+        return { error: "No sources provided" };
+      }
+      // Cap at 6 to keep the JSON output small enough for mimo to complete.
+      // evaluate_sources truncates mid-JSON when given too many sources.
+      const capped = candidates.slice(0, 6);
+      log?.info({ total: candidates.length, capped: capped.length }, "evaluate_sources: scoring");
+
+      const sourcesBlock = capped
+        .map((s, i) => `${i + 1}. ${s.title ?? "(untitled)"}\n   URL: ${s.url}\n   Snippet: ${(s.snippet ?? "").slice(0, 300)}`)
+        .join("\n\n");
+
+      const prompt = SOURCE_EVALUATE_PROMPT
+        .replace("{subtask_instruction}", subtask.instruction)
+        .replace("{sources}", sourcesBlock);
+
+      let rawText = "";
+      try {
+        const result = await llm.generate({
+          role: "evaluator",
+          system: "You evaluate research sources rigorously. Output strict JSON only.",
+          prompt,
+          maxTokens: 4096,
+          runId,
+          phase: "subagents",
+        });
+        rawText = result.text;
+
+        const parsed = parseJsonFromText(rawText) as {
+          evaluations?: Array<{ url: string; normalized_score?: number; full_text?: boolean; reason?: string }>;
+        };
+        const evaluations = (parsed.evaluations ?? []).slice(0, 12);
+        log?.info({ evaluations }, "evaluate_sources: done");
+        return { evaluations };
+      } catch (error) {
+        const errMsg = error instanceof Error ? error.message : String(error);
+        log?.error({
+          errMsg,
+          rawTextLength: rawText.length,
+          rawTextHead: rawText.slice(0, 400),
+          rawTextTail: rawText.length > 400 ? rawText.slice(-200) : undefined,
+          sourceCount: candidates.length,
+        }, "evaluate_sources: failed — falling back to neutral scoring");
+
+        // Graceful degradation: return neutral scores so the subagent can still
+        // proceed to tavily_extract. Top half are flagged for full-text fetch.
+        const half = Math.max(1, Math.min(3, Math.ceil(capped.length / 2)));
+        return {
+          evaluations: capped.map((s, idx) => ({
+            url: s.url,
+            normalized_score: 0.5,
+            full_text: idx < half,
+            reason: "evaluator parse failed; fallback neutral score",
+          })),
+        };
       }
     }
 
@@ -142,12 +313,11 @@ export async function runSubagent(
         for (const r of results) {
           if (r.success) {
             evidence.push(`[Source: ${r.url}]\n${r.content.slice(0, 2000)}`);
-            // Extract structured evidence spans
             const chunks = splitIntoSpans(r.content, 500);
             for (const chunk of chunks) {
               evidenceSpans.push({
                 id: randomUUID(),
-                subtaskId,
+                subtaskId: subtask.id,
                 quote: chunk.text,
                 url: r.url,
                 startOffset: chunk.start,
@@ -156,31 +326,46 @@ export async function runSubagent(
             }
           }
         }
-        log?.debug({ results }, "tavily_extract: raw results");
         log?.info({
           urlCount: urls.length,
           successCount: results.filter((r) => r.success).length,
         }, "tavily_extract: done");
         return results;
       } catch (error) {
-        log?.error({ urls, error }, "tavily_extract: failed");
-        return { error: String(error) };
+        const errMsg = error instanceof Error ? error.message : String(error);
+        log?.error({ urls, errMsg }, "tavily_extract: failed");
+        return { error: errMsg };
       }
     }
 
     return { error: `Unknown tool: ${name}` };
   }
 
-  // ReAct loop with tool calling
   const languageName = language === "zh" ? "Chinese" : "English";
-  log?.info({ subtaskId }, "subagent: start");
-  log?.debug({ subtaskId, instruction }, "subagent: full instruction");
+  const { min, max } = wordTargets(depth);
+
+  const boundariesBlock = subtask.boundaries
+    ? `Boundaries (do NOT cover): ${subtask.boundaries}\n`
+    : "";
+  const sourceTypesBlock = subtask.sourceTypes
+    ? `Preferred source types: ${subtask.sourceTypes}\n`
+    : "";
+  const requirementsBlock = formatRequirements(requirements);
+
+  const userMessage = SUBAGENT_USER_TEMPLATE
+    .replace("{instruction}", subtask.instruction)
+    .replace("{boundaries_block}", boundariesBlock)
+    .replace("{source_types_block}", sourceTypesBlock)
+    .replace("{requirements_block}", requirementsBlock)
+    .replace("{language}", languageName)
+    .replace("{min_words}", String(min))
+    .replace("{max_words}", String(max));
+
+  log?.info({ subtaskId: subtask.id }, "subagent: start");
+  log?.debug({ subtaskId: subtask.id, userMessage }, "subagent: initial user message");
 
   const messages: Array<{ role: "user" | "assistant"; content: string | Array<Record<string, unknown>> }> = [
-    {
-      role: "user",
-      content: `Research subtask: ${instruction}\n\nYou MUST write your final report in ${languageName}.`,
-    },
+    { role: "user", content: userMessage },
   ];
 
   let finalReport = "";
@@ -190,13 +375,14 @@ export async function runSubagent(
     if (signal?.aborted) break;
     if (Date.now() - startTime > config.timeoutMs) break;
 
-    // Force writing phase in last 3 steps
     const isWritingPhase = step >= config.maxSteps - 3;
+    const baseSystem = buildSubagentSystemPrompt({ withEvaluate: useEvaluate });
     const systemPrompt = isWritingPhase
-      ? SUBAGENT_SYSTEM_PROMPT + "\n\nIMPORTANT: You are now in the writing phase. Do NOT search anymore. Write your final report now."
-      : SUBAGENT_SYSTEM_PROMPT;
+      ? baseSystem + "\n\nWRITING PHASE: stop searching. Write your final markdown report as plain text now."
+      : baseSystem;
 
     const result: GenerateResult = await llm.generate({
+      role: "subagent",
       system: systemPrompt,
       messages,
       tools: isWritingPhase ? undefined : toolDefs,
@@ -205,14 +391,12 @@ export async function runSubagent(
       phase: "subagents",
     });
 
-    // If model returned tool calls, execute them and continue
     if (result.toolCalls?.length && !isWritingPhase) {
       log?.debug({
         step,
         toolCalls: result.toolCalls.map((tc) => ({ name: tc.name, input: tc.input })),
       }, "subagent: tool calls");
 
-      // Add assistant message with thinking, text, and tool calls
       const assistantContent: Array<Record<string, unknown>> = [];
       if (result.thinking) {
         assistantContent.push({ type: "thinking", thinking: result.thinking });
@@ -230,7 +414,6 @@ export async function runSubagent(
       }
       messages.push({ role: "assistant", content: assistantContent });
 
-      // Execute tools and add results
       const toolResults: Array<Record<string, unknown>> = [];
       for (const tc of result.toolCalls) {
         const toolResult = await executeTool(tc.name, tc.input);
@@ -245,26 +428,28 @@ export async function runSubagent(
       continue;
     }
 
-    // No tool calls — model produced final text
     finalReport = result.text;
     break;
   }
 
-  // If no final report, generate one from evidence
   if (!finalReport || finalReport.length < 200) {
     log?.warn({
+      subtaskId: subtask.id,
+      instruction: subtask.instruction.slice(0, 150),
       reportLength: finalReport?.length ?? 0,
       evidenceCount: evidence.length,
     }, "subagent: report too short, generating fallback");
 
-    const reportPrompt = SUBAGENT_REPORT_PROMPT
-      .replace("{instruction}", instruction)
+    const fallbackPrompt = SUBAGENT_REPORT_FALLBACK_PROMPT
+      .replace("{instruction}", subtask.instruction)
+      .replace("{boundaries_block}", boundariesBlock)
       .replace("{language}", languageName)
       .replace("{evidence}", evidence.join("\n\n---\n\n"));
 
     const generated = await llm.generate({
-      system: "Write a research report. Cite sources with [src: <url>].",
-      prompt: reportPrompt,
+      role: "subagent",
+      system: "You write evidence-backed research reports. Cite every claim with [src: <url>].",
+      prompt: fallbackPrompt,
       maxTokens: 4096,
       runId,
       phase: "subagents",
@@ -273,7 +458,7 @@ export async function runSubagent(
   }
 
   log?.info({
-    subtaskId,
+    subtaskId: subtask.id,
     reportLength: finalReport.length,
     sourceCount: sources.length,
     searchCount,
@@ -281,7 +466,7 @@ export async function runSubagent(
   }, "subagent: done");
 
   return {
-    subtaskId,
+    subtaskId: subtask.id,
     report: finalReport,
     sources,
     evidenceSpans,

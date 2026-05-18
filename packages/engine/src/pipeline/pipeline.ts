@@ -6,8 +6,8 @@ const PHASE_WEIGHTS: Record<string, number> = {
   split: 5,
   subagents: 55,
   reflection: 5,
-  synthesize: 12,
-  "extract-claims": 5,
+  synthesize: 15,
+  "extract-claims": 2,
   cite: 8,
 };
 const PHASE_ORDER = ["init", "plan", "split", "subagents", "reflection", "synthesize", "extract-claims", "cite"];

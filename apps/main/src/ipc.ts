@@ -1,6 +1,6 @@
 import electron from "electron";
-const { ipcMain, BrowserWindow } = electron;
-import { readFileSync, existsSync } from "node:fs";
+const { ipcMain, BrowserWindow, dialog } = electron;
+import { readFileSync, existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ResearchEngine, CokiDatabase } from "@coki/engine";
 import type { SecretStore } from "./secret-store";
@@ -116,45 +116,15 @@ export function registerIPCHandlers(
     return logs;
   });
 
-  ipcMain.handle("research:rerun", async (_event, runId: string, mode: "full" | "reuse-sources" | "reuse-plan") => {
-    const originalRun = engine.getRun(runId);
-    if (!originalRun) throw new Error("Run not found");
+  ipcMain.handle("research:exportMarkdown", async (_event, filename: string, content: string) => {
     const mainWindow = getMainWindow();
-
-    if (mode === "full") {
-      const newRunId = crypto.randomUUID();
-      const gen = engine.runResearch(originalRun.user_query, originalRun.depth as 1 | 2 | 3, { runId: newRunId });
-      (async () => {
-        for await (const event of gen) {
-          mainWindow?.webContents.send("research:progress", event);
-        }
-      })();
-      return newRunId;
-    }
-
-    if (mode === "reuse-sources") {
-      const newRunId = crypto.randomUUID();
-      const gen = engine.rerunSynthesize(runId, { runId: newRunId });
-      (async () => {
-        for await (const event of gen) {
-          mainWindow?.webContents.send("research:progress", event);
-        }
-      })();
-      return newRunId;
-    }
-
-    if (mode === "reuse-plan") {
-      const newRunId = crypto.randomUUID();
-      const gen = engine.rerunWithPlan(runId, { runId: newRunId });
-      (async () => {
-        for await (const event of gen) {
-          mainWindow?.webContents.send("research:progress", event);
-        }
-      })();
-      return newRunId;
-    }
-
-    throw new Error(`Unknown rerun mode: ${mode}`);
+    const result = await dialog.showSaveDialog(mainWindow!, {
+      defaultPath: filename,
+      filters: [{ name: "Markdown", extensions: ["md"] }],
+    });
+    if (result.canceled || !result.filePath) return { saved: false };
+    writeFileSync(result.filePath, content, "utf-8");
+    return { saved: true, filePath: result.filePath };
   });
 
   // Config

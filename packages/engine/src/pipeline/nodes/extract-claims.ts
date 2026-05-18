@@ -10,39 +10,13 @@ import { randomUUID } from "node:crypto";
 import pLimit from "p-limit";
 import type { PipelineContext, Claim, EvidenceSpan } from "../context";
 import type { LLMClient } from "../../llm/client";
+import {
+  EXTRACT_CLAIMS_PROMPT,
+  EXTRACT_CLAIMS_SYSTEM_PROMPT,
+} from "../../agents/prompts";
+import { parseSections } from "../../utils/sections";
 
-const EXTRACT_CLAIMS_PROMPT = `Extract individual factual claims from the following text section.
-A claim is a single, verifiable statement that could be checked against a source.
-Return a JSON array of strings, each being one claim.
-Do NOT extract opinions, transitions, or meta-commentary.
-Return ONLY the JSON array, no other text.
-
-Section: {section_heading}
-Text: {section_text}`;
-
-export function parseSections(report: string): Array<{ heading: string; text: string }> {
-  const sections: Array<{ heading: string; text: string }> = [];
-  const lines = report.split("\n");
-  let currentHeading = "Introduction";
-  let currentText = "";
-
-  for (const line of lines) {
-    const headingMatch = line.match(/^(#{1,3})\s+(.+)/);
-    if (headingMatch) {
-      if (currentText.trim()) {
-        sections.push({ heading: currentHeading, text: currentText.trim() });
-      }
-      currentHeading = headingMatch[2]!.trim();
-      currentText = "";
-    } else {
-      currentText += line + "\n";
-    }
-  }
-  if (currentText.trim()) {
-    sections.push({ heading: currentHeading, text: currentText.trim() });
-  }
-  return sections;
-}
+export { parseSections };
 
 export function tokenize(text: string): Set<string> {
   return new Set(
@@ -65,7 +39,6 @@ export function matchClaimToEvidence(
   for (const span of evidenceSpans) {
     const spanTokens = tokenize(span.quote);
     if (spanTokens.size === 0) continue;
-    // Jaccard similarity
     let intersection = 0;
     for (const token of claimTokens) {
       if (spanTokens.has(token)) intersection++;
@@ -108,6 +81,7 @@ export function createExtractClaimsNode(llm: LLMClient) {
             try {
               const result = await llm.generate({
                 role: "extract-claims",
+                system: EXTRACT_CLAIMS_SYSTEM_PROMPT,
                 prompt,
                 maxTokens: 2048,
                 runId: ctx.runId,

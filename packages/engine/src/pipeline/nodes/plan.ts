@@ -1,68 +1,63 @@
 /**
  * Plan Pipeline Node
  *
- * Generates a research plan (dimensions, output structure, methodology)
- * using the LLM. For depth 2-3, first performs a Tavily search to provide
- * the planner with background context.
+ * Extracts the user's intent (objectives, requirements, constraints, sub-questions)
+ * and produces a structured research plan. For depth 2-3, runs a preliminary
+ * Tavily search first to seed the planner with up-to-date context.
  */
 
 import type { LLMClient } from "../../llm/client";
 import type { TavilySearchProvider } from "../../search/tavily";
 import type { DepthProfile } from "../../config/config";
 import type { PipelineContext, ResearchPlan } from "../context";
+import { PLANNER_PROMPT, PLANNER_SYSTEM_PROMPT } from "../../agents/prompts";
+import { parseJsonFromText } from "../../utils/parse-json";
 import { pipelineLogger } from "../../logger";
 
-// ---------------------------------------------------------------------------
-// Prompt
-// ---------------------------------------------------------------------------
+function normalizePlan(raw: unknown): ResearchPlan {
+  const r = (raw ?? {}) as Record<string, unknown>;
 
-function buildPlannerPrompt(
-  userQuery: string,
-  searchContext: string | null,
-): string {
-  const parts: string[] = [
-    `You are a research planner. Given the user's research question, produce a structured research plan.`,
-    ``,
-    `User question: ${userQuery}`,
-  ];
+  const dimensions = Array.isArray(r.dimensions)
+    ? (r.dimensions as unknown[]).map(String).filter(Boolean)
+    : [];
 
-  if (searchContext) {
-    parts.push(
-      ``,
-      `Background search results for context:`,
-      searchContext,
-    );
+  let outputStructure: string[];
+  if (Array.isArray(r.outputStructure)) {
+    outputStructure = (r.outputStructure as unknown[]).map(String).filter(Boolean);
+  } else if (typeof r.outputStructure === "string" && r.outputStructure.trim()) {
+    // Backward-compat: some older models may return a string
+    outputStructure = r.outputStructure.split(/\n+/).map((s) => s.replace(/^[-*\s]+/, "").trim()).filter(Boolean);
+  } else {
+    outputStructure = dimensions.slice();
   }
 
-  parts.push(
-    ``,
-    `Respond with a JSON object containing:`,
-    `- "dimensions": an array of 1-5 research dimensions (sub-topics to investigate)`,
-    `- "outputStructure": a brief description of the desired output format`,
-    `- "methodology": a brief description of the research methodology to follow`,
-    ``,
-    `Output ONLY the JSON object, no other text.`,
-  );
+  const methodology = typeof r.methodology === "string" ? r.methodology : "";
 
-  return parts.join("\n");
+  const reqRaw = (r.requirements ?? {}) as Record<string, unknown>;
+  const scope = (reqRaw.scopeConstraints ?? {}) as Record<string, unknown>;
+
+  return {
+    dimensions,
+    outputStructure,
+    methodology,
+    requirements: {
+      coreObjectives: Array.isArray(reqRaw.coreObjectives)
+        ? (reqRaw.coreObjectives as unknown[]).map(String).filter(Boolean)
+        : [],
+      explicitRequirements: Array.isArray(reqRaw.explicitRequirements)
+        ? (reqRaw.explicitRequirements as unknown[]).map(String).filter(Boolean)
+        : [],
+      scopeConstraints: {
+        region: typeof scope.region === "string" ? scope.region : undefined,
+        time: typeof scope.time === "string" ? scope.time : undefined,
+        target: typeof scope.target === "string" ? scope.target : undefined,
+      },
+      subQuestions: Array.isArray(reqRaw.subQuestions)
+        ? (reqRaw.subQuestions as unknown[]).map(String).filter(Boolean)
+        : [],
+    },
+  };
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function parseJsonFromText(text: string): unknown {
-  // Try to extract JSON from markdown code blocks or plain text
-  const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/) ?? text.match(/(\{[\s\S]*\})/);
-  if (jsonMatch?.[1]) {
-    return JSON.parse(jsonMatch[1].trim());
-  }
-  return JSON.parse(text);
-}
-
-// ---------------------------------------------------------------------------
-// Factory
-// ---------------------------------------------------------------------------
 
 export function createPlanNode(
   llm: LLMClient,
@@ -73,42 +68,48 @@ export function createPlanNode(
     const log = pipelineLogger(ctx.runId);
     log.info({ query: ctx.userQuery }, "plan: start");
 
-    let searchContext: string | null = null;
-
-    // For depth 2-3, perform a preliminary search to seed the planner
+    let searchContextBlock = "";
     if (profile.plannerUseReact && search) {
       try {
         const results = await search.search(ctx.userQuery, {
           maxResults: 5,
           includeAnswer: true,
         });
-        searchContext = results
-          .map((r) => `[${r.title}](${r.url}): ${r.snippet}`)
+        const lines = results
+          .map((r) => `- [${r.title}](${r.url}): ${r.snippet}`)
           .join("\n");
+        searchContextBlock = `\nBackground search results (for orientation only — do not cite):\n${lines}\n`;
         log.info({ resultCount: results.length }, "plan: preliminary search done");
       } catch (err) {
         log.warn({ err }, "plan: preliminary search failed");
-        searchContext = null;
       }
     }
 
-    const prompt = buildPlannerPrompt(ctx.userQuery, searchContext);
+    const language = ctx.outputLanguage === "zh" ? "Chinese" : "English";
+    const prompt = PLANNER_PROMPT
+      .replace("{query}", ctx.userQuery)
+      .replace("{language}", language)
+      .replace("{search_context}", searchContextBlock);
+
     log.debug({ prompt }, "plan: generated prompt");
 
     const result = await llm.generate({
       role: "planner",
+      system: PLANNER_SYSTEM_PROMPT,
       prompt,
       runId: ctx.runId,
       phase: "plan",
     });
 
-    const plan = parseJsonFromText(result.text) as ResearchPlan;
+    const plan = normalizePlan(parseJsonFromText(result.text));
     log.debug({ plan }, "plan: full result");
-    log.info({ dimensions: plan.dimensions.length }, "plan: done");
+    log.info({
+      dimensions: plan.dimensions.length,
+      sections: plan.outputStructure.length,
+      coreObjectives: plan.requirements.coreObjectives,
+      subQuestions: plan.requirements.subQuestions.length,
+    }, "plan: done");
 
-    return {
-      ...ctx,
-      plan,
-    };
+    return { ...ctx, plan };
   };
 }

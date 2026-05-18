@@ -6,6 +6,20 @@ export interface Subtask {
   id: string;
   instruction: string;
   keywords: string[];
+  dimension?: string;
+  boundaries?: string;
+  sourceTypes?: string;
+}
+
+export interface ResearchRequirements {
+  coreObjectives: string[];
+  explicitRequirements: string[];
+  scopeConstraints: {
+    region?: string;
+    time?: string;
+    target?: string;
+  };
+  subQuestions: string[];
 }
 
 export interface EvidenceSpan {
@@ -46,8 +60,9 @@ export interface SourceRecord {
 
 export interface ResearchPlan {
   dimensions: string[];
-  outputStructure: string;
+  outputStructure: string[];
   methodology: string;
+  requirements: ResearchRequirements;
 }
 
 export interface PipelineContext {

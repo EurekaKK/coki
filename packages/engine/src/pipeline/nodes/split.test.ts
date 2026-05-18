@@ -6,8 +6,14 @@ import type { PipelineContext, ResearchPlan } from "../context";
 
 const testPlan: ResearchPlan = {
   dimensions: ["技术原理", "应用场景", "发展趋势"],
-  outputStructure: "markdown",
+  outputStructure: ["技术原理", "应用场景", "发展趋势"],
   methodology: "综合分析",
+  requirements: {
+    coreObjectives: [],
+    explicitRequirements: [],
+    scopeConstraints: {},
+    subQuestions: [],
+  },
 };
 
 function makeCtx(query: string): PipelineContext {

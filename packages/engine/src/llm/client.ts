@@ -19,7 +19,6 @@ export interface LLMClientConfig {
   baseUrl: string;
   apiKey: string | null;
   model: string;
-  temperature: number;
   maxTokens: number;
   thinking: boolean;
   roleModels?: Record<string, string>;
@@ -49,7 +48,6 @@ export interface GenerateOptions {
   system?: string;
   prompt?: string;
   messages?: Array<{ role: string; content: string | Array<Record<string, unknown>> }>;
-  temperature?: number;
   maxTokens?: number;
   tools?: ToolDef[];
   abortSignal?: AbortSignal;
@@ -64,7 +62,6 @@ export interface StreamOptions {
   model?: string;
   system?: string;
   prompt: string;
-  temperature?: number;
   maxTokens?: number;
   abortSignal?: AbortSignal;
   onChunk?: (chunk: { type: string; textDelta?: string }) => void;
@@ -92,7 +89,6 @@ export interface GenerateResult {
 export class LLMClient {
   private client: Anthropic;
   private readonly defaultModel: string;
-  private readonly defaultTemperature: number;
   private readonly defaultMaxTokens: number;
   private defaultThinking: boolean;
   private roleModels: Record<string, string>;
@@ -108,7 +104,6 @@ export class LLMClient {
       },
     });
     this.defaultModel = config.model;
-    this.defaultTemperature = config.temperature;
     this.defaultMaxTokens = config.maxTokens;
     this.defaultThinking = config.thinking;
     this.roleModels = config.roleModels ?? {};
@@ -183,7 +178,6 @@ export class LLMClient {
       const params: Anthropic.MessageCreateParams & { thinking?: { type: string } } = {
         model,
         max_tokens: opts.maxTokens ?? this.defaultMaxTokens,
-        temperature: opts.temperature ?? this.defaultTemperature,
         messages,
       };
 
@@ -285,7 +279,6 @@ export class LLMClient {
       const streamParams: Anthropic.MessageCreateParams & { thinking?: { type: string } } = {
         model,
         max_tokens: opts.maxTokens ?? this.defaultMaxTokens,
-        temperature: opts.temperature ?? this.defaultTemperature,
         system: opts.system,
         messages: [{ role: "user", content: opts.prompt }],
       };

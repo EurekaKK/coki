@@ -39,8 +39,7 @@ export function createSubagentsNode(
         subtaskLog.info({ instruction: subtask.instruction.slice(0, 200) }, "subagents: running subtask");
 
         const report = await runSubagent(
-          subtask.id,
-          subtask.instruction,
+          subtask,
           llm,
           search,
           {
@@ -49,8 +48,13 @@ export function createSubagentsNode(
             maxFetchCalls: Math.floor(profile.searchBudgetPerSubagent / 2),
             maxToolErrors: 3,
             timeoutMs: 120_000,
+            allowQueryFallback: ctx.depth >= 2,
+            maxResultsPerDomain: 3,
+            useSourceEvaluation: profile.useSourceEvaluation,
           },
           ctx.outputLanguage,
+          ctx.depth,
+          ctx.plan?.requirements,
           signal,
           ctx.runId,
         );
@@ -85,10 +89,21 @@ export function createSubagentsNode(
         }
       } else {
         const subtask = pendingSubtasks[i];
+        const reason = result.reason;
+        const errMsg = reason instanceof Error ? reason.message : String(reason);
+        const stack = reason instanceof Error ? reason.stack : undefined;
         log.error({
           subtaskId: subtask.id,
-          error: result.reason,
+          instruction: subtask.instruction.slice(0, 200),
+          errMsg,
+          stack,
         }, "subagents: subtask failed");
+
+        // Mark as completed to prevent infinite retry on the next reflection
+        // iteration. A subtask that fails once almost always fails again with
+        // the same root cause (provider error, prompt-too-long, network hang),
+        // and each retry burns 1–3 minutes for no value.
+        newCompleted.add(subtask.id);
       }
     }
 

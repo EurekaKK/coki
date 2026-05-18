@@ -19,8 +19,8 @@ const api = {
       ipcRenderer.invoke("research:costSummary", runId),
     timeline: (runId: string) =>
       ipcRenderer.invoke("research:timeline", runId),
-    rerun: (runId: string, mode: "full" | "reuse-sources" | "reuse-plan") =>
-      ipcRenderer.invoke("research:rerun", runId, mode),
+    exportMarkdown: (filename: string, content: string) =>
+      ipcRenderer.invoke("research:exportMarkdown", filename, content),
   },
   config: {
     get: () => ipcRenderer.invoke("config:get"),

@@ -35,15 +35,6 @@ describe("ConfigManager", () => {
     expect(cm.getRole("custom-role").model).toBe("default-model");
   });
 
-  it("falls back to default role model when user override has no model", () => {
-    const cm = new ConfigManager({
-      roles: { planner: { temperature: 0.9 } },
-    });
-    // Should use DEFAULT_ROLES.planner.model, not the global llm.model
-    expect(cm.getRole("planner").model).toBe("");
-    expect(cm.getRole("planner").temperature).toBe(0.9);
-  });
-
   it("returns depth profile", () => {
     const cm = new ConfigManager({});
     expect(cm.getDepthProfile(1).maxSubagents).toBeLessThan(

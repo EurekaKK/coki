@@ -23,13 +23,8 @@ export type {
   GenerateResult,
 } from "./llm";
 
-export { TavilySearchProvider, fallbackExtract } from "./search";
-export type {
-  SearchResult,
-  ExtractResult,
-  SearchOptions,
-  FallbackExtractResult,
-} from "./search";
+export { TavilySearchProvider } from "./search";
+export type { SearchResult, ExtractResult, SearchOptions } from "./search";
 
 export { Pipeline } from "./pipeline";
 export type {
