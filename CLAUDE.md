@@ -101,3 +101,25 @@ All prompts rewritten to mirror the original project. Key rules:
 - Temperature config from all roles and global LLM config — provider defaults used.
 - `ResearchEngine.rerunSynthesize()` and `ResearchEngine.rerunWithPlan()`.
 - `deepen` as a pipeline node (now internal to synthesize).
+
+## Frontend Polish (frontend-polish branch)
+
+Visual overhaul of all 6 renderer pages. Functionality unchanged.
+
+### Design
+- Apple-minimalist aesthetic with CSS variable-based Light/Dark mode (`prefers-color-scheme`).
+- System default sans-serif font stack throughout (no serif body font).
+
+### Components
+- **Resizable sidebar**: `MIN_WIDTH=160`, `MAX_WIDTH=320`, draggable edge. Collapses to icon-only when `<200px`.
+- **shadcn/ui primitives**: Badge, Button, Card, Input, Label, Skeleton, Textarea, Tooltip, ScrollArea, Separator, Collapsible.
+- **Table of Contents**: DOM-driven (`querySelectorAll` index-based), scroll-spy with active highlight, collapsible toggle.
+
+### Report page
+- `remarkMath` configured with `{ singleDollarTextMath: false }` to prevent `$` currency symbols from being parsed as inline math (which breaks `**bold**` inside table cells).
+- `ensureProperties` rehype plugin guards against `rehype-katex` crashing on elements without `properties` (e.g. `<sup>` from remark-gfm footnotes).
+- HashRouter anchor fix: custom `<a>` component intercepts `href="#..."` and uses `scrollIntoView`.
+- Report title extracted from markdown h1, removed from rendered body to avoid duplication.
+- GFM footnotes heading renamed from "Footnotes" to "References" via `components.h2`.
+- `code::before/::after { content: none }` suppresses typography plugin auto-backticks.
+- List styles (`disc`/`decimal`) and table borders restored in CSS (Tailwind preflight had removed them).

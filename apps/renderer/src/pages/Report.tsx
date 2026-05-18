@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback, useMemo } from "react";
+import React, { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -25,6 +25,20 @@ function getHastText(node: any): string {
   }
   return "";
 }
+
+// rehype-katex crashes on elements without `properties` (e.g. <sup> from remark-gfm footnotes).
+// This plugin ensures every element node has a properties object before katex sees it.
+const ensureProperties = () => (tree: any) => {
+  const walk = (node: any) => {
+    if (node && node.type === "element" && !node.properties) {
+      node.properties = {};
+    }
+    if (node && Array.isArray(node.children)) {
+      node.children.forEach(walk);
+    }
+  };
+  walk(tree);
+};
 
 const components = {
   h2: ({ node, children, ...props }: any) => {
@@ -69,6 +83,12 @@ const components = {
       </a>
     );
   },
+  td: ({ children, isHeader: _isHeader, ...props }: any) => (
+    <td {...props}>{children}</td>
+  ),
+  th: ({ children, isHeader: _isHeader, ...props }: any) => (
+    <th {...props}>{children}</th>
+  ),
 };
 
 export function Report() {
@@ -260,8 +280,9 @@ export function Report() {
 
         <article className="markdown-report">
           <ReactMarkdown
-            remarkPlugins={[remarkGfm, remarkMath]}
+            remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: false }]]}
             rehypePlugins={[
+              ensureProperties,
               rehypeKatex,
               [rehypeHighlight, { detect: true, ignoreMissing: true }],
             ]}
