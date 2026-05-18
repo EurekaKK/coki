@@ -116,7 +116,7 @@ export class ResearchEngine {
         },
         {
           id: "subagents",
-          run: createSubagentsNode(this.llm, this.search, profile),
+          run: createSubagentsNode(this.llm, this.search, profile, this.documentManager ?? undefined),
         },
         {
           id: "reflection",

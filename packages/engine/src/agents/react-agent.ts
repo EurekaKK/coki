@@ -1,5 +1,6 @@
 import type { LLMClient, ToolDef, GenerateResult } from "../llm/client";
 import type { TavilySearchProvider } from "../search/tavily";
+import type { DocumentManager } from "../rag/document-manager";
 import type {
   SubagentReport,
   SourceRecord,
@@ -15,6 +16,7 @@ import {
 } from "./prompts";
 import { parseJsonFromText } from "../utils/parse-json";
 import { formatRequirements as formatRequirementsBlock } from "../utils/format-requirements";
+import { createDocumentSearchTool, executeDocumentSearch } from "./tools";
 import { randomUUID } from "node:crypto";
 import { toolLogger } from "../logger";
 
@@ -105,6 +107,8 @@ export async function runSubagent(
   requirements: ResearchRequirements | undefined,
   signal?: AbortSignal,
   runId?: string,
+  documentManager?: DocumentManager,
+  collectionId?: string,
 ): Promise<SubagentReport> {
   const log = runId ? toolLogger(runId, "subagents") : null;
   const sources: SourceRecord[] = [];
@@ -173,6 +177,13 @@ export async function runSubagent(
         required: ["sources"],
       },
     });
+  }
+
+  if (documentManager && collectionId) {
+    const collection = documentManager.getCollection(collectionId);
+    if (collection) {
+      toolDefs.push(createDocumentSearchTool(collection.name));
+    }
   }
 
   async function runSearch(query: string): Promise<Array<{ title: string; url: string; snippet: string }>> {
@@ -334,6 +345,23 @@ export async function runSubagent(
       } catch (error) {
         const errMsg = error instanceof Error ? error.message : String(error);
         log?.error({ urls, errMsg }, "tavily_extract: failed");
+        return { error: errMsg };
+      }
+    }
+
+    if (name === "search_documents") {
+      if (!documentManager || !collectionId) {
+        return { error: "Document search not available" };
+      }
+      const query = input.query as string;
+      log?.info({ query }, "search_documents: executing");
+      try {
+        const output = await executeDocumentSearch(documentManager, collectionId, query);
+        log?.info({ query, resultLength: output.length }, "search_documents: done");
+        return output;
+      } catch (error) {
+        const errMsg = error instanceof Error ? error.message : String(error);
+        log?.error({ query, errMsg }, "search_documents: failed");
         return { error: errMsg };
       }
     }

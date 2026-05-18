@@ -2,13 +2,15 @@ import type { PipelineContext } from "../context";
 import type { LLMClient } from "../../llm/client";
 import type { TavilySearchProvider } from "../../search/tavily";
 import type { DepthProfile } from "../../config/config";
+import type { DocumentManager } from "../../rag/document-manager";
 import { runSubagent } from "../../agents/react-agent";
 import { pipelineLogger } from "../../logger";
 
 export function createSubagentsNode(
   llm: LLMClient,
   search: TavilySearchProvider | null,
-  profile: DepthProfile
+  profile: DepthProfile,
+  documentManager?: DocumentManager,
 ) {
   return async function subagentsNode(ctx: PipelineContext, signal?: AbortSignal): Promise<PipelineContext> {
     const log = pipelineLogger(ctx.runId);
@@ -57,6 +59,8 @@ export function createSubagentsNode(
           ctx.plan?.requirements,
           signal,
           ctx.runId,
+          documentManager,
+          ctx.collectionId,
         );
 
         subtaskLog.info({
