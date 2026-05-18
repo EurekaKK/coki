@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback, useMemo } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -13,58 +13,8 @@ import { ChevronLeft, List } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface TocItem {
-  id: string;
   text: string;
   level: number;
-}
-
-const REMARK_PLUGINS: any[] = [remarkGfm, remarkMath];
-const REHYPE_PLUGINS: any[] = [
-  rehypeKatex,
-  [rehypeHighlight, { detect: true, ignoreMissing: true }],
-];
-
-function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .trim()
-    .replace(/[^\w\s-]/g, "")
-    .replace(/\s+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
-
-function extractHeadings(report: string): TocItem[] {
-  const lines = report.split("\n");
-  const items: TocItem[] = [];
-  let inCodeBlock = false;
-  let fence = "";
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith("```") || trimmed.startsWith("~~~")) {
-      const match = trimmed.match(/^(```+|~~~+)/);
-      if (match) {
-        if (!inCodeBlock) {
-          inCodeBlock = true;
-          fence = match[1];
-        } else if (trimmed.startsWith(fence)) {
-          inCodeBlock = false;
-          fence = "";
-        }
-      }
-      continue;
-    }
-    if (inCodeBlock) continue;
-
-    const m = line.match(/^(#{2,3})\s+(.+)$/);
-    if (m) {
-      const level = m[1].length;
-      const text = m[2].trim().replace(/\*\*/g, "");
-      const id = slugify(text) || `heading-${items.length}`;
-      items.push({ id, text, level });
-    }
-  }
-  return items;
 }
 
 function getHastText(node: any): string {
@@ -76,11 +26,57 @@ function getHastText(node: any): string {
   return "";
 }
 
+const components = {
+  h2: ({ node, children, ...props }: any) => {
+    const text = getHastText(node).trim();
+    const isFootnotes = props.id === "footnote-label" || text === "Footnotes";
+    if (isFootnotes) {
+      return (
+        <h2 {...props} id="footnote-label">
+          References
+        </h2>
+      );
+    }
+    return <h2 {...props}>{children}</h2>;
+  },
+  h3: ({ node, children, ...props }: any) => {
+    return <h3 {...props}>{children}</h3>;
+  },
+  a: ({ href, children, ...props }: any) => {
+    if (href?.startsWith("#")) {
+      return (
+        <a
+          {...props}
+          href={href}
+          onClick={(e: React.MouseEvent) => {
+            e.preventDefault();
+            const target = document.getElementById(
+              decodeURIComponent(href.slice(1)),
+            );
+            target?.scrollIntoView({
+              behavior: "smooth",
+              block: "start",
+            });
+          }}
+        >
+          {children}
+        </a>
+      );
+    }
+    return (
+      <a {...props} href={href} target="_blank" rel="noreferrer">
+        {children}
+      </a>
+    );
+  },
+};
+
 export function Report() {
   const { runId } = useParams<{ runId: string }>();
   const navigate = useNavigate();
   const [report, setReport] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [headings, setHeadings] = useState<TocItem[]>([]);
   const [activeIndex, setActiveIndex] = useState(-1);
   const [tocOpen, setTocOpen] = useState(true);
   const mainRef = useRef<HTMLElement | null>(null);
@@ -99,24 +95,43 @@ export function Report() {
     });
   }, [runId]);
 
-  const tocItems = useMemo(() => extractHeadings(report || ""), [report]);
+  // Read actual DOM headings after ReactMarkdown renders
+  useEffect(() => {
+    if (!report) {
+      setHeadings([]);
+      return;
+    }
+    const timer = requestAnimationFrame(() => {
+      const elements = document.querySelectorAll(
+        ".markdown-report h2, .markdown-report h3",
+      );
+      const items: TocItem[] = [];
+      elements.forEach((el) => {
+        const level = el.tagName === "H2" ? 2 : 3;
+        let text = el.textContent || "";
+        if (text === "Footnotes") text = "References";
+        items.push({ text, level });
+      });
+      setHeadings(items);
+    });
+    return () => cancelAnimationFrame(timer);
+  }, [report]);
 
   // Track active heading on scroll
   useEffect(() => {
     const main = mainRef.current;
-    if (!main || tocItems.length === 0) return;
+    if (!main || headings.length === 0) return;
 
     const handleScroll = () => {
-      const headingElements = document.querySelectorAll(
+      const elements = document.querySelectorAll(
         ".markdown-report h2, .markdown-report h3",
       );
       let current = -1;
-      for (let i = headingElements.length - 1; i >= 0; i--) {
-        const el = headingElements[i];
+      for (let i = elements.length - 1; i >= 0; i--) {
+        const el = elements[i];
         const rect = el.getBoundingClientRect();
         if (rect.top <= 220) {
-          const idx = el.getAttribute("data-heading-index");
-          current = idx !== null ? parseInt(idx, 10) : -1;
+          current = i;
           break;
         }
       }
@@ -126,83 +141,17 @@ export function Report() {
     main.addEventListener("scroll", handleScroll, { passive: true });
     handleScroll();
     return () => main.removeEventListener("scroll", handleScroll);
-  }, [tocItems]);
+  }, [headings]);
 
   const scrollToHeading = useCallback((index: number) => {
-    const el = document.querySelector(`[data-heading-index="${index}"]`);
+    const elements = document.querySelectorAll(
+      ".markdown-report h2, .markdown-report h3",
+    );
+    const el = elements[index];
     if (el) {
       el.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   }, []);
-
-  const components = useMemo(() => {
-    let index = 0;
-    return {
-      h2: ({ node, children, ...props }: any) => {
-        const text = getHastText(node).trim();
-        const isFootnotes =
-          props.id === "footnote-label" || text === "Footnotes";
-        if (isFootnotes) {
-          return (
-            <h2 {...props} id="footnote-label">
-              References
-            </h2>
-          );
-        }
-        const currentIndex = index++;
-        const item = tocItems[currentIndex];
-        return (
-          <h2
-            {...props}
-            id={item?.id || `h2-${currentIndex}`}
-            data-heading-index={currentIndex}
-          >
-            {children}
-          </h2>
-        );
-      },
-      h3: ({ node, children, ...props }: any) => {
-        const currentIndex = index++;
-        const item = tocItems[currentIndex];
-        return (
-          <h3
-            {...props}
-            id={item?.id || `h3-${currentIndex}`}
-            data-heading-index={currentIndex}
-          >
-            {children}
-          </h3>
-        );
-      },
-      a: ({ href, children, ...props }: any) => {
-        if (href?.startsWith("#")) {
-          return (
-            <a
-              {...props}
-              href={href}
-              onClick={(e: React.MouseEvent) => {
-                e.preventDefault();
-                const target = document.getElementById(
-                  decodeURIComponent(href.slice(1)),
-                );
-                target?.scrollIntoView({
-                  behavior: "smooth",
-                  block: "start",
-                });
-              }}
-            >
-              {children}
-            </a>
-          );
-        }
-        return (
-          <a {...props} href={href} target="_blank" rel="noreferrer">
-            {children}
-          </a>
-        );
-      },
-    };
-  }, [tocItems]);
 
   const handleExport = async () => {
     if (!report || !runId) return;
@@ -235,7 +184,7 @@ export function Report() {
   return (
     <div className="flex max-w-[1100px] mx-auto px-8 py-12 gap-10">
       {/* Table of Contents */}
-      {tocItems.length > 0 && (
+      {headings.length > 0 && (
         <aside
           className={cn(
             "hidden lg:block shrink-0 transition-all duration-200",
@@ -258,7 +207,7 @@ export function Report() {
                   </button>
                 </div>
                 <nav className="space-y-0.5">
-                  {tocItems.map((h, i) => (
+                  {headings.map((h, i) => (
                     <button
                       key={i}
                       onClick={() => scrollToHeading(i)}
@@ -304,8 +253,11 @@ export function Report() {
 
         <article className="markdown-report">
           <ReactMarkdown
-            remarkPlugins={REMARK_PLUGINS}
-            rehypePlugins={REHYPE_PLUGINS}
+            remarkPlugins={[remarkGfm, remarkMath]}
+            rehypePlugins={[
+              rehypeKatex,
+              [rehypeHighlight, { detect: true, ignoreMissing: true }],
+            ]}
             components={components}
           >
             {report}
