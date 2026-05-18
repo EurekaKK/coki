@@ -273,6 +273,12 @@
   background-color: var(--secondary);
 }
 
+.markdown-report strong,
+.markdown-report b {
+  font-weight: 700;
+  color: var(--foreground);
+}
+
 .markdown-report table strong,
 .markdown-report table b {
   font-weight: 700;
