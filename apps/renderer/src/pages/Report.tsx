@@ -17,6 +17,30 @@ interface TocItem {
   level: number;
 }
 
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function extractHeadings(report: string): TocItem[] {
+  const lines = report.split("\n");
+  const items: TocItem[] = [];
+  for (const line of lines) {
+    const match = line.match(/^(#{2,3})\s+(.+)$/);
+    if (match) {
+      const level = match[1].length;
+      const text = match[2].trim().replace(/\*\*/g, "");
+      const id = slugify(text) || `heading-${items.length}`;
+      items.push({ id, text, level });
+    }
+  }
+  return items;
+}
+
 export function Report() {
   const { runId } = useParams<{ runId: string }>();
   const navigate = useNavigate();
@@ -25,6 +49,8 @@ export function Report() {
   const [headings, setHeadings] = useState<TocItem[]>([]);
   const [activeId, setActiveId] = useState<string>("");
   const mainRef = useRef<HTMLElement | null>(null);
+  const headingMapRef = useRef<Map<string, string>>(new Map());
+  const tocIndexRef = useRef(0);
 
   useEffect(() => {
     mainRef.current = document.querySelector("main");
@@ -34,26 +60,19 @@ export function Report() {
     if (!runId) return;
     api.research.report(runId).then((data: unknown) => {
       const run = data as { cited_report?: string; citedReport?: string };
-      setReport(run.cited_report ?? run.citedReport ?? null);
+      const content = run.cited_report ?? run.citedReport ?? null;
+      setReport(content);
+      if (content) {
+        setHeadings(extractHeadings(content));
+      }
       setLoading(false);
     });
   }, [runId]);
 
-  // Extract headings after ReactMarkdown renders
+  // Reset heading map whenever report changes
   useEffect(() => {
-    if (!report) return;
-    const timer = setTimeout(() => {
-      const elements = document.querySelectorAll(
-        ".markdown-report h2, .markdown-report h3",
-      );
-      const items = Array.from(elements).map((el) => ({
-        id: el.id,
-        text: el.textContent || "",
-        level: el.tagName === "H2" ? 2 : 3,
-      }));
-      setHeadings(items);
-    }, 100);
-    return () => clearTimeout(timer);
+    headingMapRef.current = new Map();
+    tocIndexRef.current = 0;
   }, [report]);
 
   // Track active heading on scroll
@@ -66,10 +85,13 @@ export function Report() {
         ".markdown-report h2, .markdown-report h3",
       );
       let current = "";
-      for (const el of Array.from(headingElements)) {
+      // Search from bottom to top: find the last heading above the threshold
+      for (let i = headingElements.length - 1; i >= 0; i--) {
+        const el = headingElements[i];
         const rect = el.getBoundingClientRect();
-        if (rect.top <= 140) {
+        if (rect.top <= 220) {
           current = el.id;
+          break;
         }
       }
       setActiveId(current);
@@ -79,6 +101,21 @@ export function Report() {
     handleScroll();
     return () => main.removeEventListener("scroll", handleScroll);
   }, [headings]);
+
+  const getHeadingId = useCallback((level: number, childrenText: string): string => {
+    const items = extractHeadings(report || "");
+    const idx = tocIndexRef.current;
+    const item = items[idx];
+    if (item && item.level === level) {
+      tocIndexRef.current = idx + 1;
+      headingMapRef.current.set(childrenText, item.id);
+      return item.id;
+    }
+    // fallback
+    const fallback = slugify(childrenText) || `heading-${idx}`;
+    headingMapRef.current.set(childrenText, fallback);
+    return fallback;
+  }, [report]);
 
   const scrollToHeading = useCallback((id: string) => {
     const el = document.getElementById(id);
@@ -116,24 +153,26 @@ export function Report() {
   }
 
   return (
-    <div className="flex max-w-[1100px] mx-auto px-8 py-12 gap-8">
+    <div className="flex max-w-[1100px] mx-auto px-8 py-12 gap-10">
       {/* Table of Contents */}
       {headings.length > 0 && (
-        <aside className="hidden lg:block w-[200px] shrink-0">
+        <aside className="hidden lg:block w-[220px] shrink-0">
           <div className="sticky top-8">
-            <h3 className="text-[13px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+            <h3 className="text-[13px] font-semibold text-muted-foreground uppercase tracking-wider mb-4 px-3">
               目录
             </h3>
-            <nav className="space-y-1">
+            <nav className="space-y-0.5">
               {headings.map((h) => (
                 <button
                   key={h.id}
                   onClick={() => scrollToHeading(h.id)}
                   className={cn(
-                    "block w-full text-left text-[13px] leading-snug py-1.5 px-2 rounded-lg transition-all duration-150",
-                    h.level === 3 && "pl-4",
+                    "block w-full text-left rounded-lg transition-all duration-150",
+                    h.level === 2
+                      ? "text-[13px] font-medium px-3 py-1.5"
+                      : "text-[12px] px-3 py-1 pl-6",
                     activeId === h.id
-                      ? "text-primary font-medium bg-primary/10"
+                      ? "text-primary bg-primary/10"
                       : "text-muted-foreground hover:text-foreground hover:bg-secondary",
                   )}
                 >
@@ -166,14 +205,30 @@ export function Report() {
             ]}
             components={{
               h2: ({ node: _node, children, ...props }) => {
+                const text =
+                  typeof children === "string"
+                    ? children
+                    : Array.isArray(children)
+                      ? children.join("")
+                      : "";
+                const id = getHeadingId(2, text);
                 const isFootnotes =
-                  props.id === "footnote-label" ||
-                  (typeof children === "string" && children === "Footnotes");
+                  props.id === "footnote-label" || text === "Footnotes";
                 return (
-                  <h2 {...props} id={props.id ?? undefined}>
+                  <h2 {...props} id={id}>
                     {isFootnotes ? "References" : children}
                   </h2>
                 );
+              },
+              h3: ({ node: _node, children, ...props }) => {
+                const text =
+                  typeof children === "string"
+                    ? children
+                    : Array.isArray(children)
+                      ? children.join("")
+                      : "";
+                const id = getHeadingId(3, text);
+                return <h3 {...props} id={id}>{children}</h3>;
               },
               a: ({ href, children, ...props }) => {
                 if (href?.startsWith("#")) {
@@ -197,12 +252,7 @@ export function Report() {
                   );
                 }
                 return (
-                  <a
-                    {...props}
-                    href={href}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
+                  <a {...props} href={href} target="_blank" rel="noreferrer">
                     {children}
                   </a>
                 );
