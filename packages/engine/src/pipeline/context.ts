@@ -86,5 +86,5 @@ export interface PipelineContext {
   claims: Claim[];
   done?: boolean;
   error?: string;
-  collectionId?: string;
+  collectionIds?: string[];
 }

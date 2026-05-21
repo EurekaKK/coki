@@ -101,6 +101,7 @@ export class LLMClient {
       apiKey: undefined,
       defaultHeaders: {
         "api-key": config.apiKey ?? "",
+        ...(config.apiKey ? { "Authorization": `Bearer ${config.apiKey}` } : {}),
       },
     });
     this.defaultModel = config.model;
@@ -116,6 +117,7 @@ export class LLMClient {
       apiKey: undefined,
       defaultHeaders: {
         "api-key": apiKey || "",
+        ...(apiKey ? { "Authorization": `Bearer ${apiKey}` } : {}),
       },
     });
   }

@@ -621,6 +621,12 @@ export class CokiDatabase {
     return this.db.prepare("SELECT * FROM document_chunks WHERE document_id = ? ORDER BY chunk_index").all(documentId) as DocumentChunkRow[];
   }
 
+  getDocumentChunk(documentId: string, chunkIndex: number): DocumentChunkRow | null {
+    this.checkNotClosed();
+    const row = this.db.prepare("SELECT * FROM document_chunks WHERE document_id = ? AND chunk_index = ?").get(documentId, chunkIndex) as DocumentChunkRow | undefined;
+    return row ?? null;
+  }
+
   deleteDocumentChunks(documentId: string): void {
     this.checkNotClosed();
     this.db.prepare("DELETE FROM document_chunks WHERE document_id = ?").run(documentId);

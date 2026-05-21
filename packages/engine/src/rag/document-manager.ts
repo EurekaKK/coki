@@ -159,10 +159,12 @@ export class DocumentManager {
 
     return results.map((r) => {
       const [documentId, chunkIndexStr] = r.documentId.split("#");
+      const chunkIndex = parseInt(chunkIndexStr, 10);
+      const chunk = this.db.getDocumentChunk(documentId, chunkIndex);
       return {
         documentId,
-        chunkIndex: parseInt(chunkIndexStr, 10),
-        text: r.text,
+        chunkIndex,
+        text: chunk?.text ?? "",
         score: r.score,
       };
     });

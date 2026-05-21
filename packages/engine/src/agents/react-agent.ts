@@ -108,7 +108,7 @@ export async function runSubagent(
   signal?: AbortSignal,
   runId?: string,
   documentManager?: DocumentManager,
-  collectionId?: string,
+  collectionIds?: string[],
 ): Promise<SubagentReport> {
   const log = runId ? toolLogger(runId, "subagents") : null;
   const sources: SourceRecord[] = [];
@@ -124,6 +124,10 @@ export async function runSubagent(
 
   const useEvaluate = config.useSourceEvaluation === true;
 
+  // Cache document content for extract_document
+  const docContentCache = new Map<string, string>();
+  const DOC_URL_PREFIX = "https://doc.coki/";
+
   const toolDefs: ToolDef[] = [
     {
       name: "tavily_search",
@@ -138,14 +142,14 @@ export async function runSubagent(
     },
     {
       name: "tavily_extract",
-      description: "Extract full content from specific URLs found in previous search results.",
+      description: "Extract full content from web URLs (http/https) found in previous search results. Does NOT handle doc:// URLs — use extract_document for those.",
       input_schema: {
         type: "object" as const,
         properties: {
           urls: {
             type: "array",
             items: { type: "string" },
-            description: "URLs to extract content from",
+            description: "Web URLs to extract content from",
           },
         },
         required: ["urls"],
@@ -156,13 +160,13 @@ export async function runSubagent(
   if (useEvaluate) {
     toolDefs.push({
       name: "evaluate_sources",
-      description: "Rate candidate search results (relevance, authority, density) and pick which deserve full-text extraction. Call this AFTER tavily_search and BEFORE tavily_extract.",
+      description: "Rate candidate search results (relevance, authority, density) and pick which deserve full-text extraction. Call this AFTER all searches (tavily_search and search_documents) and BEFORE any extraction (tavily_extract or extract_document).",
       input_schema: {
         type: "object" as const,
         properties: {
           sources: {
             type: "array",
-            description: "Candidate sources from previous searches",
+            description: "Candidate sources from previous searches (both web and document)",
             items: {
               type: "object",
               properties: {
@@ -179,10 +183,28 @@ export async function runSubagent(
     });
   }
 
-  if (documentManager && collectionId) {
-    const collection = documentManager.getCollection(collectionId);
-    if (collection) {
-      toolDefs.push(createDocumentSearchTool(collection.name));
+  if (documentManager && collectionIds && collectionIds.length > 0) {
+    const names: string[] = [];
+    for (const cid of collectionIds) {
+      const c = documentManager.getCollection(cid);
+      if (c) names.push(c.name);
+    }
+    if (names.length > 0) {
+      toolDefs.push(createDocumentSearchTool(names));
+      toolDefs.push({
+        name: "extract_document",
+        description: "Extract the full text of a specific document source (doc://<id>). Call this AFTER evaluate_sources when a document is flagged for full_text extraction.",
+        input_schema: {
+          type: "object" as const,
+          properties: {
+            url: {
+              type: "string",
+              description: "The doc:// URL to extract (e.g. doc://abc123)",
+            },
+          },
+          required: ["url"],
+        },
+      });
     }
   }
 
@@ -252,7 +274,10 @@ export async function runSubagent(
     }
 
     if (name === "evaluate_sources") {
-      const candidates = (input.sources as Array<{ url: string; title?: string; snippet?: string }>) ?? [];
+      const rawSources = input.sources;
+      const candidates = Array.isArray(rawSources)
+        ? (rawSources as Array<{ url: string; title?: string; snippet?: string }>)
+        : [];
       if (candidates.length === 0) {
         return { error: "No sources provided" };
       }
@@ -317,10 +342,23 @@ export async function runSubagent(
         log?.warn({ urls, fetchCount }, "tavily_extract: budget exceeded");
         return { error: "Fetch budget exceeded" };
       }
+
+      // tavily_extract only handles web URLs — document URLs must use extract_document
+      const webUrls = urls.filter((u) => !u.startsWith(DOC_URL_PREFIX));
+      const docUrls = urls.filter((u) => u.startsWith(DOC_URL_PREFIX));
+
+      if (docUrls.length > 0) {
+        log?.warn({ docUrls }, "tavily_extract: document URLs passed to tavily_extract — use extract_document instead");
+      }
+
+      if (webUrls.length === 0) {
+        return { error: `tavily_extract does not handle document URLs. Use extract_document for: ${docUrls.join(", ")}` };
+      }
+
       fetchCount++;
-      log?.info({ urls, fetchCount }, "tavily_extract: executing");
+      log?.info({ urls: webUrls, fetchCount }, "tavily_extract: executing");
       try {
-        const results = await search.extract(urls);
+        const results = await search.extract(webUrls);
         for (const r of results) {
           if (r.success) {
             evidence.push(`[Source: ${r.url}]\n${r.content.slice(0, 2000)}`);
@@ -338,33 +376,49 @@ export async function runSubagent(
           }
         }
         log?.info({
-          urlCount: urls.length,
+          urlCount: webUrls.length,
           successCount: results.filter((r) => r.success).length,
         }, "tavily_extract: done");
         return results;
       } catch (error) {
         const errMsg = error instanceof Error ? error.message : String(error);
-        log?.error({ urls, errMsg }, "tavily_extract: failed");
+        log?.error({ urls: webUrls, errMsg }, "tavily_extract: failed");
         return { error: errMsg };
       }
     }
 
     if (name === "search_documents") {
-      if (!documentManager || !collectionId) {
+      if (!documentManager || !collectionIds || collectionIds.length === 0) {
         return { error: "Document search not available" };
       }
       const query = input.query as string;
-      log?.info({ query }, "search_documents: executing");
+      log?.info({ query, collectionCount: collectionIds.length }, "search_documents: executing");
       try {
-        const results = await documentManager.search(collectionId, query);
-        if (results.length === 0) {
+        const allResults: Array<{ documentId: string; text: string; score: number; chunkIndex: number }> = [];
+        for (const cid of collectionIds) {
+          const res = await documentManager.search(cid, query);
+          allResults.push(...res);
+        }
+        // Sort by score descending and dedupe by documentId (keep highest score)
+        allResults.sort((a, b) => b.score - a.score);
+        const seenDocs = new Set<string>();
+        const deduped: typeof allResults = [];
+        for (const r of allResults) {
+          if (seenDocs.has(r.documentId)) continue;
+          seenDocs.add(r.documentId);
+          deduped.push(r);
+        }
+
+        if (deduped.length === 0) {
           return "No relevant documents found.";
         }
 
-        // Track document sources and evidence for citation
-        for (const r of results) {
+        // Cache content for extract_document and track sources
+        const results: Array<{ title: string; url: string; snippet: string }> = [];
+        for (const r of deduped) {
           const doc = documentManager.getDocument(r.documentId);
-          const docUrl = `doc://${r.documentId}`;
+          const docUrl = `${DOC_URL_PREFIX}${r.documentId}`;
+          docContentCache.set(docUrl, r.text);
           sources.push({
             id: randomUUID(),
             sourceType: "document",
@@ -373,26 +427,53 @@ export async function runSubagent(
             snippet: r.text.slice(0, 200),
             fetchStatus: "ok",
           });
-          evidence.push(`[Source: ${docUrl}]\n${r.text.slice(0, 2000)}`);
-          evidenceSpans.push({
-            id: randomUUID(),
-            subtaskId: subtask.id,
-            quote: r.text,
+          results.push({
+            title: doc?.filename ?? `Document ${r.documentId.slice(0, 8)}`,
             url: docUrl,
-            startOffset: r.chunkIndex,
-            endOffset: r.chunkIndex,
+            snippet: r.text.slice(0, 300),
           });
         }
 
-        const output = results
-          .map((r, i) => `Result ${i + 1} (score: ${(r.score * 100).toFixed(1)}%)\n[Source: doc://${r.documentId}]\n${r.text}`)
-          .join("\n\n---\n\n");
-
-        log?.info({ query, resultCount: results.length }, "search_documents: done");
-        return output;
+        log?.info({ query, resultCount: deduped.length }, "search_documents: done");
+        return results;
       } catch (error) {
         const errMsg = error instanceof Error ? error.message : String(error);
         log?.error({ query, errMsg }, "search_documents: failed");
+        return { error: errMsg };
+      }
+    }
+
+    if (name === "extract_document") {
+      if (!documentManager || !collectionIds || collectionIds.length === 0) {
+        return { error: "Document extraction not available" };
+      }
+      const url = input.url as string;
+      if (!url.startsWith(DOC_URL_PREFIX)) {
+        return { error: `Invalid document URL. Must start with ${DOC_URL_PREFIX}` };
+      }
+      log?.info({ url }, "extract_document: executing");
+      try {
+        const cached = docContentCache.get(url);
+        if (!cached) {
+          return { error: "Document not found. Run search_documents first." };
+        }
+        evidence.push(`[Source: ${url}]\n${cached.slice(0, 2000)}`);
+        const chunks = splitIntoSpans(cached, 500);
+        for (const chunk of chunks) {
+          evidenceSpans.push({
+            id: randomUUID(),
+            subtaskId: subtask.id,
+            quote: chunk.text,
+            url,
+            startOffset: chunk.start,
+            endOffset: chunk.end,
+          });
+        }
+        log?.info({ url, contentLength: cached.length }, "extract_document: done");
+        return { url, success: true, content: cached };
+      } catch (error) {
+        const errMsg = error instanceof Error ? error.message : String(error);
+        log?.error({ url, errMsg }, "extract_document: failed");
         return { error: errMsg };
       }
     }
@@ -435,7 +516,7 @@ export async function runSubagent(
     if (Date.now() - startTime > config.timeoutMs) break;
 
     const isWritingPhase = step >= config.maxSteps - 3;
-    const baseSystem = buildSubagentSystemPrompt({ withEvaluate: useEvaluate });
+    const baseSystem = buildSubagentSystemPrompt({ withEvaluate: useEvaluate, hasDocuments: !!(documentManager && collectionIds && collectionIds.length > 0) });
     const systemPrompt = isWritingPhase
       ? baseSystem + "\n\nWRITING PHASE: stop searching. Write your final markdown report as plain text now."
       : baseSystem;

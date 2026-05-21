@@ -128,7 +128,7 @@
 
 .markdown-report h1, .markdown-report h2, .markdown-report h3,
 .markdown-report h4, .markdown-report h5, .markdown-report h6 {
-  font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+  font-family: ui-serif, Georgia, Cambria, 'Times New Roman', 'Songti SC', 'STSong', serif;
   color: var(--foreground);
   font-weight: 600;
 }
@@ -140,7 +140,7 @@
 }
 
 .markdown-report h3 {
-  font-size: 16px;
+  font-size: 20px;
   margin-top: 1.6em;
   margin-bottom: 0.6em;
 }

@@ -16,6 +16,7 @@ export async function initNode(ctx: PipelineContext): Promise<PipelineContext> {
     outputLanguage: ctx.outputLanguage,
     maxIterations: ctx.maxIterations,
     qualityThreshold: ctx.qualityThreshold,
+    collectionIds: ctx.collectionIds,
 
     // Reset transient state
     plan: null,

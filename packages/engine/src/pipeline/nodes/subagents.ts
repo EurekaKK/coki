@@ -60,7 +60,7 @@ export function createSubagentsNode(
           signal,
           ctx.runId,
           documentManager,
-          ctx.collectionId,
+          ctx.collectionIds,
         );
 
         subtaskLog.info({

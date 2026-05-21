@@ -17,9 +17,9 @@ export function Home() {
   const [depth, setDepth] = useState(2);
   const [mounted, setMounted] = useState(false);
   const [collections, setCollections] = useState<Array<{ id: string; name: string }>>([]);
-  const [selectedCollection, setSelectedCollection] = useState<string>("");
+  const [selectedCollections, setSelectedCollections] = useState<string[]>([]);
   const navigate = useNavigate();
-  const { setCurrentRunId, setIsRunning, reset } = useAppStore();
+  const { initRun, setRunIsRunning } = useAppStore();
 
   useEffect(() => {
     const timer = setTimeout(() => setMounted(true), 50);
@@ -32,13 +32,17 @@ export function Home() {
 
   const handleStart = async () => {
     if (!query.trim()) return;
-    reset();
-    setIsRunning(true);
+    const cfg = await api.config.get();
+    if (!cfg.llm.baseUrl || !cfg.llm.apiKeyConfigured || !cfg.llm.model || !cfg.tavily.apiKeyConfigured) {
+      navigate("/settings");
+      return;
+    }
     const runId = await api.research.start(query, {
       depth,
-      collectionId: selectedCollection || undefined,
+      collectionIds: selectedCollections.length > 0 ? selectedCollections : undefined,
     });
-    setCurrentRunId(runId);
+    initRun(runId);
+    setRunIsRunning(runId, true);
     navigate(`/dashboard/${runId}`);
   };
 
@@ -101,17 +105,35 @@ export function Home() {
             mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4",
           )}
         >
-          <label className="text-sm font-medium text-muted-foreground mb-2 block">关联知识库（可选）</label>
-          <select
-            className="w-full rounded-xl border bg-background px-3 py-2.5 text-sm"
-            value={selectedCollection}
-            onChange={(e) => setSelectedCollection(e.target.value)}
-          >
-            <option value="">不关联知识库</option>
-            {collections.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
+          <label className="text-sm font-medium text-muted-foreground mb-2 block">关联知识库（可选，多选）</label>
+          <div className="flex flex-wrap gap-2">
+            {collections.map((c) => {
+              const checked = selectedCollections.includes(c.id);
+              return (
+                <label
+                  key={c.id}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm cursor-pointer transition-all duration-200 border",
+                    checked
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-secondary text-secondary-foreground border-border hover:bg-accent hover:text-accent-foreground",
+                  )}
+                >
+                  <input
+                    type="checkbox"
+                    className="sr-only"
+                    checked={checked}
+                    onChange={() => {
+                      setSelectedCollections((prev) =>
+                        checked ? prev.filter((id) => id !== c.id) : [...prev, c.id]
+                      );
+                    }}
+                  />
+                  {c.name}
+                </label>
+              );
+            })}
+          </div>
         </div>
       )}
 

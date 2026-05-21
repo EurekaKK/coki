@@ -3,17 +3,16 @@ import { api } from "../lib/api";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Button } from "@/components/ui/button";
-import { Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface ConfigData {
   llm: { baseUrl: string; model: string; apiKeyConfigured: boolean; thinking: boolean };
   tavily: { apiKeyConfigured: boolean };
+  zhipu: { apiKeyConfigured: boolean };
   roles: Record<string, { model: string }>;
 }
 
-const ROLE_NAMES = ["planner", "splitter", "subagent", "evaluator", "reflection", "synthesis", "citation"] as const;
+const ROLE_NAMES = ["planner", "splitter", "subagent", "evaluator", "reflection", "synthesis"] as const;
 
 const ROLE_LABELS: Record<string, string> = {
   planner: "Planner",
@@ -22,7 +21,6 @@ const ROLE_LABELS: Record<string, string> = {
   evaluator: "Evaluator",
   reflection: "Reflection",
   synthesis: "Synthesis",
-  citation: "Citation",
 };
 
 export function Settings() {
@@ -33,8 +31,10 @@ export function Settings() {
   const [roleModels, setRoleModels] = useState<Record<string, string>>({});
   const [llmKey, setLlmKey] = useState("");
   const [tavilyKey, setTavilyKey] = useState("");
+  const [zhipuKey, setZhipuKey] = useState("");
   const [llmKeyFocused, setLlmKeyFocused] = useState(false);
   const [tavilyKeyFocused, setTavilyKeyFocused] = useState(false);
+  const [zhipuKeyFocused, setZhipuKeyFocused] = useState(false);
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
@@ -51,36 +51,49 @@ export function Settings() {
     });
   }, []);
 
-  const handleSave = async () => {
-    const patch: Record<string, unknown> = {};
-    if (baseUrl !== config?.llm.baseUrl) patch.llmBaseUrl = baseUrl;
-    if (defaultModel !== config?.llm.model) patch.llmModel = defaultModel;
-    if (thinking !== (config?.llm.thinking ?? false)) patch.llmThinking = thinking;
-    if (llmKey) patch.llmApiKey = llmKey;
-    if (tavilyKey) patch.tavilyApiKey = tavilyKey;
+  useEffect(() => {
+    if (!config) return;
+    const timer = setTimeout(async () => {
+      const patch: Record<string, unknown> = {};
+      if (baseUrl !== config.llm.baseUrl) patch.llmBaseUrl = baseUrl;
+      if (defaultModel !== config.llm.model) patch.llmModel = defaultModel;
+      if (thinking !== (config.llm.thinking ?? false)) patch.llmThinking = thinking;
+      if (llmKey) patch.llmApiKey = llmKey;
+      if (tavilyKey) patch.tavilyApiKey = tavilyKey;
+      if (zhipuKey) patch.zhipuApiKey = zhipuKey;
 
-    for (const role of ROLE_NAMES) {
-      const current = config?.roles[role]?.model ?? "";
-      if (roleModels[role] !== current) {
-        patch[`role.${role}.model`] = roleModels[role];
+      for (const role of ROLE_NAMES) {
+        const current = config.roles[role]?.model ?? "";
+        if (roleModels[role] !== current) {
+          patch[`role.${role}.model`] = roleModels[role];
+        }
       }
-    }
 
-    await api.config.update(patch);
-    setLlmKey("");
-    setTavilyKey("");
-    setLlmKeyFocused(false);
-    setTavilyKeyFocused(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+      if (Object.keys(patch).length === 0) return;
 
-    const data: ConfigData = await api.config.get();
-    setConfig(data);
-  };
+      await api.config.update(patch);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1500);
+
+      setLlmKey("");
+      setTavilyKey("");
+      setZhipuKey("");
+      setLlmKeyFocused(false);
+      setTavilyKeyFocused(false);
+      setZhipuKeyFocused(false);
+
+      const data: ConfigData = await api.config.get();
+      setConfig(data);
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [baseUrl, defaultModel, thinking, llmKey, tavilyKey, zhipuKey, roleModels, config]);
 
   return (
     <div className="max-w-[600px] mx-auto px-8 py-8">
-      <h2 className="text-[22px] font-semibold tracking-tight mb-6">设置</h2>
+      <h2 className="text-[22px] font-semibold tracking-tight mb-6">
+        设置
+        {saved && <span className="text-[13px] text-[#34c759] font-normal ml-3">已保存</span>}
+      </h2>
 
       <div className="space-y-6">
         {/* LLM Configuration */}
@@ -90,16 +103,20 @@ export function Settings() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-1.5">
-              <Label>Base URL</Label>
+              <Label className={cn(!baseUrl && "text-red-500")}>Base URL</Label>
               <Input
                 placeholder="https://api.openai.com/v1"
                 value={baseUrl}
                 onChange={(e) => setBaseUrl(e.target.value)}
+                className={cn(!baseUrl && "border-red-500")}
               />
+              <p className="text-[13px] text-muted-foreground">
+                Anthropic 兼容格式，例如 https://api.anthropic.com/v1
+              </p>
             </div>
 
             <div className="space-y-1.5">
-              <Label>API Key</Label>
+              <Label className={cn(!config?.llm.apiKeyConfigured && !llmKey && "text-red-500")}>API Key</Label>
               <Input
                 type="password"
                 placeholder={config?.llm.apiKeyConfigured && !llmKeyFocused ? "" : "输入 LLM API key..."}
@@ -107,18 +124,22 @@ export function Settings() {
                 onChange={(e) => setLlmKey(e.target.value)}
                 onFocus={() => { setLlmKeyFocused(true); if (!llmKey) setLlmKey(""); }}
                 onBlur={() => { if (!llmKey) setLlmKeyFocused(false); }}
+                className={cn(!config?.llm.apiKeyConfigured && !llmKey && "border-red-500")}
               />
-              {config?.llm.apiKeyConfigured && !llmKeyFocused && (
+              {config?.llm.apiKeyConfigured && !llmKeyFocused ? (
                 <p className="text-[13px] text-[#34c759] dark:text-[#30d158]">已配置</p>
-              )}
+              ) : !config?.llm.apiKeyConfigured && !llmKey ? (
+                <p className="text-[13px] text-red-500">未配置</p>
+              ) : null}
             </div>
 
             <div className="space-y-1.5">
-              <Label>默认模型</Label>
+              <Label className={cn(!defaultModel && "text-red-500")}>默认模型</Label>
               <Input
                 placeholder="gpt-4o-mini"
                 value={defaultModel}
                 onChange={(e) => setDefaultModel(e.target.value)}
+                className={cn(!defaultModel && "border-red-500")}
               />
               <p className="text-[13px] text-muted-foreground">
                 未指定模型的角色将使用此默认值
@@ -176,8 +197,10 @@ export function Settings() {
         <Card>
           <CardHeader>
             <CardTitle className="text-[17px]">Tavily 搜索</CardTitle>
+            <CardDescription>用于研究过程中的网络信息检索与网页内容提取</CardDescription>
           </CardHeader>
           <CardContent className="space-y-1.5">
+            <Label className={cn(!config?.tavily.apiKeyConfigured && !tavilyKey && "text-red-500")}>API Key</Label>
             <Input
               type="password"
               placeholder={config?.tavily.apiKeyConfigured && !tavilyKeyFocused ? "" : "输入 Tavily API key..."}
@@ -185,32 +208,37 @@ export function Settings() {
               onChange={(e) => setTavilyKey(e.target.value)}
               onFocus={() => { setTavilyKeyFocused(true); if (!tavilyKey) setTavilyKey(""); }}
               onBlur={() => { if (!tavilyKey) setTavilyKeyFocused(false); }}
+              className={cn(!config?.tavily.apiKeyConfigured && !tavilyKey && "border-red-500")}
             />
-            {config?.tavily.apiKeyConfigured && !tavilyKeyFocused && (
+            {config?.tavily.apiKeyConfigured && !tavilyKeyFocused ? (
+              <p className="text-[13px] text-[#34c759] dark:text-[#30d158]">已配置</p>
+            ) : !config?.tavily.apiKeyConfigured && !tavilyKey ? (
+              <p className="text-[13px] text-red-500">未配置</p>
+            ) : null}
+          </CardContent>
+        </Card>
+
+        {/* Zhipu Embedding */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-[17px]">智谱 Embedding</CardTitle>
+            <CardDescription>用于知识库文档的向量嵌入，不填则使用本地 embedding 模型</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-1.5">
+            <Input
+              type="password"
+              placeholder={config?.zhipu.apiKeyConfigured && !zhipuKeyFocused ? "" : "输入智谱 API key..."}
+              value={config?.zhipu.apiKeyConfigured && !zhipuKeyFocused && !zhipuKey ? "••••••••" : zhipuKey}
+              onChange={(e) => setZhipuKey(e.target.value)}
+              onFocus={() => { setZhipuKeyFocused(true); if (!zhipuKey) setZhipuKey(""); }}
+              onBlur={() => { if (!zhipuKey) setZhipuKeyFocused(false); }}
+            />
+            {config?.zhipu.apiKeyConfigured && !zhipuKeyFocused && (
               <p className="text-[13px] text-[#34c759] dark:text-[#30d158]">已配置</p>
             )}
           </CardContent>
         </Card>
 
-        {/* Save */}
-        <div className="flex items-center justify-end gap-3 pt-2">
-          <Button
-            onClick={handleSave}
-            className={cn(
-              "transition-all duration-200",
-              saved && "bg-[#34c759] hover:bg-[#34c759] dark:bg-[#30d158] dark:hover:bg-[#30d158]",
-            )}
-          >
-            {saved ? (
-              <>
-                <Check className="w-4 h-4 mr-1" />
-                已保存
-              </>
-            ) : (
-              "保存"
-            )}
-          </Button>
-        </div>
       </div>
     </div>
   );

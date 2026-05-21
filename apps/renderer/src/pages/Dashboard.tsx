@@ -1,6 +1,5 @@
 import { useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { api } from "../lib/api";
 import { useAppStore } from "../stores/app-store";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -9,37 +8,21 @@ import { Card } from "@/components/ui/card";
 export function Dashboard() {
   const { runId } = useParams<{ runId: string }>();
   const navigate = useNavigate();
-  const { phase, progress, logs, isRunning, error } = useAppStore();
+  const run = useAppStore((state) => state.getRun(runId ?? ""));
   const logsEndRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!runId) return;
-
-    const unsubscribe = api.on.researchProgress((event: unknown) => {
-      const e = event as { type: string; phase?: string; message?: string; progress?: number };
-      if (e.type === "progress") {
-        useAppStore.getState().setPhase(e.phase ?? "unknown");
-        useAppStore.getState().setProgress(e.progress ?? 0);
-        useAppStore.getState().addLog({
-          level: "info",
-          message: e.message ?? "",
-          phase: e.phase ?? "unknown",
-        });
-      } else if (e.type === "error") {
-        useAppStore.getState().setError(e.message ?? "Unknown error");
-        useAppStore.getState().setIsRunning(false);
-      } else if (e.type === "complete") {
-        useAppStore.getState().setIsRunning(false);
-        navigate(`/report/${runId}`);
-      }
-    });
-
-    return unsubscribe;
-  }, [runId, navigate]);
+  const wasRunningRef = useRef(run.isRunning);
 
   useEffect(() => {
     logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [logs]);
+  }, [run.logs]);
+
+  useEffect(() => {
+    if (!runId) return;
+    if (wasRunningRef.current && !run.isRunning && !run.error && run.logs.length > 0) {
+      navigate(`/report/${runId}`);
+    }
+    wasRunningRef.current = run.isRunning;
+  }, [runId, run.isRunning, run.error, run.logs.length, navigate]);
 
   return (
     <div className="flex flex-col items-center min-h-full max-w-[680px] mx-auto px-8 py-12">
@@ -48,11 +31,11 @@ export function Dashboard() {
         <div>
           <h2 className="text-[22px] font-semibold tracking-tight">正在研究</h2>
           <p className="text-[15px] text-muted-foreground mt-1">
-            {useAppStore.getState().currentRunId ? "研究任务执行中..." : ""}
+            {runId ? "研究任务执行中..." : ""}
           </p>
         </div>
         <Badge variant="default" className="mt-1">
-          {phase}
+          {run.phase}
         </Badge>
       </div>
 
@@ -62,20 +45,20 @@ export function Dashboard() {
           <div
             className="h-full rounded-full bg-primary transition-all duration-500"
             style={{
-              width: `${progress}%`,
+              width: `${run.progress}%`,
               transitionTimingFunction: "cubic-bezier(0.4, 0, 0.2, 1)",
             }}
           />
         </div>
         <div className="mt-2 text-[13px] font-medium text-muted-foreground">
-          {Math.round(progress)}%
+          {Math.round(run.progress)}%
         </div>
       </div>
 
       {/* Error */}
-      {error && (
+      {run.error && (
         <Card className="w-full mb-6 border-l-4 border-l-destructive bg-[rgba(255,59,48,0.06)] dark:bg-[rgba(255,69,58,0.08)]">
-          <div className="p-4 text-sm text-foreground">{error}</div>
+          <div className="p-4 text-sm text-foreground">{run.error}</div>
         </Card>
       )}
 
@@ -88,7 +71,7 @@ export function Dashboard() {
         </div>
         <ScrollArea className="h-[320px]">
           <div className="p-4 space-y-2">
-            {logs.map((log, i) => (
+            {run.logs.map((log, i) => (
               <div
                 key={i}
                 className="flex items-start gap-3 text-[13px] font-mono py-1 px-2 rounded-lg hover:bg-secondary transition-colors duration-150"

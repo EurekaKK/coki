@@ -4,7 +4,8 @@ import { api } from "../lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { FileText, Clock } from "lucide-react";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { FileText, Clock, Trash2, X, AlertCircle } from "lucide-react";
 
 interface RunSummary {
   id: string;
@@ -14,10 +15,22 @@ interface RunSummary {
   created_at: string;
 }
 
+interface TraceLog {
+  id: number;
+  run_id: string;
+  phase: string | null;
+  event_type: string | null;
+  message: string | null;
+  details: string | null;
+  level: string;
+  created_at: string;
+}
+
 const STATUS_MAP: Record<string, { label: string; variant: "success" | "warning" | "destructive" | "secondary" }> = {
   completed: { label: "已完成", variant: "success" },
   failed: { label: "失败", variant: "destructive" },
   running: { label: "进行中", variant: "warning" },
+  cancelled: { label: "已取消", variant: "secondary" },
 };
 
 const DEPTH_LABELS: Record<number, string> = {
@@ -26,15 +39,44 @@ const DEPTH_LABELS: Record<number, string> = {
   3: "深度",
 };
 
+const LEVEL_ORDER = ["fatal", "error", "warn", "info", "debug", "trace"];
+
 export function History() {
   const [runs, setRuns] = useState<RunSummary[]>([]);
+  const [failedLogs, setFailedLogs] = useState<TraceLog[]>([]);
+  const [failedRunQuery, setFailedRunQuery] = useState<string>("");
+  const [showModal, setShowModal] = useState(false);
   const navigate = useNavigate();
 
+  const loadRuns = async () => {
+    const data = await api.research.history();
+    setRuns((data as RunSummary[]).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
+  };
+
   useEffect(() => {
-    api.research.history().then((data: unknown) => {
-      setRuns(data as RunSummary[]);
-    });
+    loadRuns();
   }, []);
+
+  const handleDelete = async (e: React.MouseEvent, runId: string) => {
+    e.stopPropagation();
+    if (!confirm("确定要删除这条研究记录吗？相关数据将全部清除。")) return;
+    await api.research.delete(runId);
+    await loadRuns();
+  };
+
+  const handleCardClick = async (run: RunSummary) => {
+    if (run.status === "running") {
+      navigate(`/dashboard/${run.id}`);
+    } else if (run.status === "failed") {
+      const logs: TraceLog[] = await api.research.timeline(run.id);
+      const warnPlus = logs.filter((l) => ["warn", "error", "fatal"].includes(l.level));
+      setFailedLogs(warnPlus);
+      setFailedRunQuery(run.user_query);
+      setShowModal(true);
+    } else {
+      navigate(`/report/${run.id}`);
+    }
+  };
 
   if (runs.length === 0) {
     return (
@@ -56,8 +98,8 @@ export function History() {
         {runs.map((run) => (
           <Card
             key={run.id}
-            className="p-5 cursor-pointer transition-all duration-200 hover:shadow-md hover:border-border/80"
-            onClick={() => navigate(`/report/${run.id}`)}
+            className="p-5 cursor-pointer transition-all duration-200 hover:shadow-md hover:border-border/80 group"
+            onClick={() => handleCardClick(run)}
           >
             <div className="flex items-start justify-between gap-4">
               <div className="flex-1 min-w-0">
@@ -72,9 +114,19 @@ export function History() {
                   <span>{DEPTH_LABELS[run.depth] ?? `深度 ${run.depth}`}</span>
                 </div>
               </div>
-              <Badge variant={STATUS_MAP[run.status]?.variant ?? "secondary"}>
-                {STATUS_MAP[run.status]?.label ?? run.status}
-              </Badge>
+              <div className="flex items-center gap-2">
+                <Badge variant={STATUS_MAP[run.status]?.variant ?? "secondary"}>
+                  {STATUS_MAP[run.status]?.label ?? run.status}
+                </Badge>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="w-7 h-7 opacity-0 group-hover:opacity-100 transition-opacity"
+                  onClick={(e) => handleDelete(e, run.id)}
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-muted-foreground hover:text-destructive" />
+                </Button>
+              </div>
             </div>
             {run.status === "completed" && (
               <div className="mt-3 pt-3 border-t border-border/50">
@@ -92,6 +144,67 @@ export function History() {
           </Card>
         ))}
       </div>
+
+      {/* Failed task logs modal */}
+      {showModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+          onClick={() => setShowModal(false)}
+        >
+          <div
+            className="bg-background rounded-2xl border shadow-2xl w-full max-w-[640px] max-h-[80vh] flex flex-col m-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-destructive" />
+                <h3 className="text-[15px] font-semibold">任务失败日志</h3>
+              </div>
+              <button
+                className="p-1 rounded-lg hover:bg-secondary transition-colors"
+                onClick={() => setShowModal(false)}
+              >
+                <X className="w-4 h-4 text-muted-foreground" />
+              </button>
+            </div>
+            <div className="px-6 py-2 border-b border-border/50 bg-secondary/30">
+              <p className="text-[13px] text-muted-foreground truncate">{failedRunQuery}</p>
+            </div>
+            <ScrollArea className="flex-1 px-6 py-4">
+              {failedLogs.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-8">暂无 warn 及以上级别的日志</p>
+              ) : (
+                <div className="space-y-2">
+                  {failedLogs.map((log) => (
+                    <div
+                      key={log.id}
+                      className="flex items-start gap-3 text-[12px] font-mono py-1.5 px-2 rounded-lg hover:bg-secondary transition-colors"
+                    >
+                      <span className="text-muted-foreground shrink-0 w-[72px]">
+                        {new Date(log.created_at).toLocaleTimeString("zh-CN", { hour12: false })}
+                      </span>
+                      <Badge
+                        variant={
+                          log.level === "fatal" || log.level === "error"
+                            ? "destructive"
+                            : log.level === "warn"
+                              ? "warning"
+                              : "secondary"
+                        }
+                        className="text-[10px] py-0 h-4 shrink-0"
+                      >
+                        {log.level}
+                      </Badge>
+                      <span className="text-muted-foreground shrink-0">[{log.phase ?? "unknown"}]</span>
+                      <span className="text-foreground">{log.message}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </ScrollArea>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -18,6 +18,7 @@ interface DocumentItem {
   filename: string;
   status: string;
   chunk_count: number | null;
+  error_message: string | null;
   created_at: string;
 }
 
@@ -171,7 +172,11 @@ export function Library() {
                       <div className="flex-1 min-w-0">
                         <div className="text-sm font-medium truncate">{doc.filename}</div>
                         <div className="text-xs text-muted-foreground">
-                          {doc.status === "ready" ? `${doc.chunk_count ?? 0} 个片段` : doc.status}
+                          {doc.status === "ready"
+                            ? `${doc.chunk_count ?? 0} 个片段`
+                            : doc.status === "error"
+                              ? `错误: ${doc.error_message ?? "未知错误"}`
+                              : doc.status}
                         </div>
                       </div>
                       <Button

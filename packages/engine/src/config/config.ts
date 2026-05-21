@@ -132,7 +132,6 @@ const DEFAULT_ROLES: Record<string, RoleConfig> = {
   evaluator:  { model: "" },
   reflection: { model: "" },
   synthesis:  { model: "" },
-  citation:   { model: "" },
 };
 
 // 3 depth profiles: 1 = quick, 2 = balanced, 3 = deep

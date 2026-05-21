@@ -50,7 +50,7 @@ app.whenReady().then(async () => {
       ...(persistedConfig["llm.thinking"] !== undefined ? { thinking: persistedConfig["llm.thinking"] === "true" } : {}),
     };
   }
-  const roleNames = ["planner", "splitter", "subagent", "evaluator", "reflection", "synthesis", "citation"];
+  const roleNames = ["planner", "splitter", "subagent", "evaluator", "reflection", "synthesis"];
   const rolesOverride: Record<string, { model: string }> = {};
   for (const role of roleNames) {
     const model = persistedConfig[`role.${role}.model`];
@@ -66,7 +66,7 @@ app.whenReady().then(async () => {
   const indexPath = join(app.getPath("userData"), "vectra-indexes");
   const engine = new ResearchEngine(db, configOverrides as any, secrets, { indexBasePath: indexPath });
 
-  registerIPCHandlers(engine, db, config, secretStore, () => mainWindow, engine.getDocumentManager());
+  registerIPCHandlers(engine, db, config, secretStore, () => mainWindow);
   createMainWindow();
 });
 

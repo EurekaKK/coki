@@ -5,17 +5,19 @@
   "type": "module",
   "main": "./dist/index.cjs",
   "scripts": {
-    "dev": "esbuild src/index.ts --bundle --platform=node --format=cjs --outfile=dist/index.cjs --external:electron --external:better-sqlite3 --external:jsdom && NODE_ENV=development electron .",
-    "build": "esbuild src/index.ts --bundle --platform=node --format=cjs --outfile=dist/index.cjs --external:electron --external:better-sqlite3 --external:jsdom"
+    "dev": "esbuild src/index.ts --bundle --platform=node --format=cjs --outfile=dist/index.cjs --external:electron --external:better-sqlite3 --external:jsdom --external:@xenova/transformers --external:@huggingface/transformers --external:onnxruntime-node --external:pdf-parse && NODE_ENV=development electron .",
+    "build": "esbuild src/index.ts --bundle --platform=node --format=cjs --outfile=dist/index.cjs --external:electron --external:better-sqlite3 --external:jsdom --external:@xenova/transformers --external:@huggingface/transformers --external:onnxruntime-node --external:pdf-parse"
   },
   "dependencies": {
     "@coki/engine": "workspace:*",
     "@coki/shared": "workspace:*",
     "better-sqlite3": "^12.0.0",
     "electron": "^32.0.0",
-    "jsdom": "^26.0.0"
+    "jsdom": "^26.0.0",
+    "pdf-parse": "^1.1.4"
   },
   "devDependencies": {
+    "electron-rebuild": "^3.2.9",
     "esbuild": "^0.25.0",
     "tsx": "^4.0.0"
   }

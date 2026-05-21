@@ -4,7 +4,7 @@ export interface EmbeddingProvider {
 }
 
 export interface ZhipuEmbeddingConfig {
-  baseUrl: string;
+  baseUrl?: string;
   apiKey: string;
   model: string;
   dimensions: number;
@@ -22,7 +22,7 @@ export class ZhipuEmbeddingProvider implements EmbeddingProvider {
   private readonly model: string;
 
   constructor(config: ZhipuEmbeddingConfig) {
-    this.baseUrl = config.baseUrl.replace(/\/$/, "");
+    this.baseUrl = (config.baseUrl || "https://open.bigmodel.cn/api/paas/v4").replace(/\/$/, "");
     this.apiKey = config.apiKey;
     this.model = config.model;
     this.dimensions = config.dimensions;
@@ -31,29 +31,37 @@ export class ZhipuEmbeddingProvider implements EmbeddingProvider {
   async embed(texts: string[]): Promise<number[][]> {
     if (texts.length === 0) return [];
 
-    const response = await fetch(`${this.baseUrl}/embeddings`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${this.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: this.model,
-        input: texts,
-        dimensions: this.dimensions,
-      }),
-    });
+    const batchSize = 64;
+    const results: number[][] = [];
 
-    if (!response.ok) {
-      const body = await response.text();
-      throw new Error(`Embedding API error: ${response.status} ${body}`);
+    for (let i = 0; i < texts.length; i += batchSize) {
+      const batch = texts.slice(i, i + batchSize);
+      const response = await fetch(`${this.baseUrl}/embeddings`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${this.apiKey}`,
+        },
+        body: JSON.stringify({
+          model: this.model,
+          input: batch,
+          dimensions: this.dimensions,
+        }),
+      });
+
+      if (!response.ok) {
+        const body = await response.text();
+        throw new Error(`Embedding API error: ${response.status} ${body}`);
+      }
+
+      const json = (await response.json()) as {
+        data: Array<{ embedding: number[] }>;
+      };
+
+      results.push(...json.data.map((d) => d.embedding));
     }
 
-    const json = (await response.json()) as {
-      data: Array<{ embedding: number[] }>;
-    };
-
-    return json.data.map((d) => d.embedding);
+    return results;
   }
 }
 

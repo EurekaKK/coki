@@ -6,3 +6,4 @@ dist-electron/
 .env
 *.log
 .DS_Store
+tavily api key.md

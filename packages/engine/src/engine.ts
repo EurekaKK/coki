@@ -20,6 +20,7 @@ import { join } from "node:path";
 export interface RuntimeSecrets {
   llmApiKey: string;
   tavilyApiKey: string;
+  zhipuApiKey: string;
 }
 
 export class ResearchEngine {
@@ -29,13 +30,19 @@ export class ResearchEngine {
   private search: TavilySearchProvider | null;
   private activeRuns = new Map<string, AbortController>();
   private documentManager: DocumentManager | null = null;
+  private indexPath: string;
+  private llmApiKey: string = "";
+  private tavilyApiKey: string = "";
 
   constructor(db: CokiDatabase, configOverrides: ConfigOverrides, secrets: RuntimeSecrets, options?: { indexBasePath?: string }) {
     this.db = db;
     this.config = new ConfigManager(configOverrides);
+    this.indexPath = options?.indexBasePath ?? "/tmp/coki/vectra-indexes";
+    this.llmApiKey = secrets.llmApiKey;
+    this.tavilyApiKey = secrets.tavilyApiKey;
     const llmConfig = this.config.getConfig().llm;
     const roleModels: Record<string, string> = {};
-    for (const role of ["planner", "splitter", "subagent", "evaluator", "reflection", "synthesis", "citation"]) {
+    for (const role of ["planner", "splitter", "subagent", "evaluator", "reflection", "synthesis"]) {
       const m = this.config.getRole(role).model;
       if (m) roleModels[role] = m;
     }
@@ -49,26 +56,7 @@ export class ResearchEngine {
     });
     this.search = secrets.tavilyApiKey ? new TavilySearchProvider(secrets.tavilyApiKey) : null;
 
-    // Initialize DocumentManager if we have an LLM API key for embeddings
-    if (secrets.llmApiKey) {
-      const ragConfig = this.config.getRAGConfig();
-      let embeddingProvider: EmbeddingProvider;
-      if (ragConfig.embeddingProvider === "local") {
-        embeddingProvider = new LocalEmbeddingProvider({
-          dimensions: ragConfig.embeddingDimension,
-          modelName: ragConfig.embeddingModel,
-        });
-      } else {
-        embeddingProvider = new ZhipuEmbeddingProvider({
-          baseUrl: llmConfig.baseUrl,
-          apiKey: secrets.llmApiKey,
-          model: ragConfig.embeddingModel,
-          dimensions: ragConfig.embeddingDimension,
-        });
-      }
-      const indexPath = options?.indexBasePath ?? "/tmp/coki/vectra-indexes";
-      this.documentManager = new DocumentManager(db, indexPath, embeddingProvider);
-    }
+    this.initDocumentManager(secrets);
 
     // Persist LLM call records to database
     this.llm.onCall((record) => {
@@ -84,6 +72,29 @@ export class ResearchEngine {
     });
   }
 
+  private initDocumentManager(secrets: RuntimeSecrets): void {
+    if (!secrets.llmApiKey && !secrets.zhipuApiKey) {
+      this.documentManager = null;
+      return;
+    }
+    const ragConfig = this.config.getRAGConfig();
+    let embeddingProvider: EmbeddingProvider;
+    if (ragConfig.embeddingProvider === "local" || !secrets.zhipuApiKey) {
+      embeddingProvider = new LocalEmbeddingProvider({
+        dimensions: ragConfig.embeddingDimension,
+        modelName: ragConfig.embeddingModel,
+      });
+    } else {
+      embeddingProvider = new ZhipuEmbeddingProvider({
+        baseUrl: undefined,
+        apiKey: secrets.zhipuApiKey,
+        model: ragConfig.embeddingModel,
+        dimensions: ragConfig.embeddingDimension,
+      });
+    }
+    this.documentManager = new DocumentManager(this.db, this.indexPath, embeddingProvider);
+  }
+
   getDocumentManager(): DocumentManager | null {
     return this.documentManager;
   }
@@ -91,7 +102,7 @@ export class ResearchEngine {
   async *runResearch(
     query: string,
     depth: 1 | 2 | 3,
-    options?: { outputLanguage?: "zh" | "en"; signal?: AbortSignal; runId?: string; collectionId?: string }
+    options?: { outputLanguage?: "zh" | "en"; signal?: AbortSignal; runId?: string; collectionIds?: string[] }
   ): AsyncGenerator<PipelineEvent> {
     const runId = this.db.createRun(query, depth, options?.runId);
     const controller = new AbortController();
@@ -174,12 +185,12 @@ export class ResearchEngine {
       citedReport: null,
       evidenceSpans: [],
       claims: [],
-      collectionId: options?.collectionId,
+      collectionIds: options?.collectionIds,
     };
 
     try {
       for await (const event of pipeline.run(initialContext, signal)) {
-        yield event;
+        yield { ...event, runId };
 
         if (event.type === "complete") {
           const completeData = event.data as { report?: string; citedReport?: string } | undefined;
@@ -200,13 +211,20 @@ export class ResearchEngine {
   /** Update API keys at runtime (called when the user saves new keys via Settings). */
   updateSecrets(secrets: Partial<RuntimeSecrets>): void {
     if (secrets.llmApiKey !== undefined) {
+      this.llmApiKey = secrets.llmApiKey;
       this.llm.updateApiKey(secrets.llmApiKey);
     }
     if (secrets.tavilyApiKey !== undefined) {
+      this.tavilyApiKey = secrets.tavilyApiKey;
       this.search = secrets.tavilyApiKey
         ? new TavilySearchProvider(secrets.tavilyApiKey)
         : null;
     }
+  }
+
+  /** Update Zhipu API key and reinitialize DocumentManager at runtime. */
+  updateZhipuApiKey(apiKey: string): void {
+    this.initDocumentManager({ llmApiKey: this.llmApiKey, tavilyApiKey: this.tavilyApiKey, zhipuApiKey: apiKey });
   }
 
   /** Update thinking mode at runtime. */

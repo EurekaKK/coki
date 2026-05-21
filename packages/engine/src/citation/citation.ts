@@ -17,6 +17,7 @@ export interface CitationResult {
 
 // Match [src: url] — closing ] is optional to handle malformed markers like [src: url)
 // Supports http(s) URLs and doc:// synthetic URLs for document sources
+const DOC_URL_PREFIX = "https://doc.coki/";
 const SRC_PATTERN = /\[src:\s*((?:https?|doc:)[^\]\)]*)\]?[)]?/g;
 // Match empty/orphaned [src: ] markers (no URL)
 const EMPTY_SRC_PATTERN = /\[src:\s*\]/g;
@@ -86,18 +87,19 @@ export function addCitations(
     return refNum ? `[^${refNum}]` : "";
   });
 
-  // Emit footnote DEFINITIONS only. remark-gfm will auto-collect them into
-  // its own footnotes section at the end of the document — we don't need
-  // (and must not provide) a heading, otherwise we get an empty References
-  // section AND a duplicate auto-generated Footnotes section.
+  // Emit footnote definitions with a References heading.  remark-gfm v3
+  // may or may not render its own "Footnotes" heading depending on
+  // configuration; adding the heading here guarantees it is present.
+  // The renderer component suppresses any duplicate auto-generated heading.
   if (sources.length > 0) {
     const definitions = sources
       .map((s) => {
         const title = lookupTitle(titleByUrl, s.url);
-        if (s.url.startsWith("doc://")) {
-          // Document sources render as plain text with title
-          const docTitle = title ?? `Document ${s.url.slice(6, 14)}`;
-          return `[^${s.id}]: ${escapeLinkText(docTitle)}`;
+        if (s.url.startsWith(DOC_URL_PREFIX)) {
+          // Document sources render as a link so Report.tsx can intercept clicks
+          const docId = s.url.slice(DOC_URL_PREFIX.length);
+          const docTitle = title ?? `Document ${docId.slice(0, 8)}`;
+          return `[^${s.id}]: [${escapeLinkText(docTitle)}](${s.url})`;
         }
         if (title) {
           return `[^${s.id}]: [${escapeLinkText(title)}](${s.url})`;
@@ -105,7 +107,7 @@ export function addCitations(
         return `[^${s.id}]: <${s.url}>`;
       })
       .join("\n");
-    cleaned += `\n\n${definitions}`;
+    cleaned += `\n\n## References\n\n${definitions}`;
   }
 
   return { citedReport: cleaned.trim(), sources };

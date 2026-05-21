@@ -15,24 +15,25 @@ export const WEB_SEARCH_TOOL: ToolDef = {
 
 export const WEB_EXTRACT_TOOL: ToolDef = {
   name: "tavily_extract",
-  description: "Extract full content from specific URLs found in previous search results.",
+  description: "Extract full content from specific URLs found in previous search results. Works for both web URLs (http/https) and document sources (doc://).",
   input_schema: {
     type: "object",
     properties: {
       urls: {
         type: "array",
         items: { type: "string" },
-        description: "URLs to extract content from",
+        description: "URLs to extract content from (including doc:// sources)",
       },
     },
     required: ["urls"],
   },
 };
 
-export function createDocumentSearchTool(collectionName: string): ToolDef {
+export function createDocumentSearchTool(collectionNames: string[]): ToolDef {
+  const namesText = collectionNames.join('", "');
   return {
     name: "search_documents",
-    description: `Search the local document collection "${collectionName}" for relevant passages. Returns chunks of text with relevance scores.`,
+    description: `Search the local document collections ("${namesText}") for relevant passages. Returns chunks of text with relevance scores.`,
     input_schema: {
       type: "object",
       properties: {

@@ -43,6 +43,7 @@ export interface PipelineEvent {
   message: string;
   progress?: number;
   data?: unknown;
+  runId?: string;
 }
 
 const SAFETY_LIMIT = 20;
@@ -83,6 +84,7 @@ export class Pipeline {
     let ctx = { ...initialContext };
     let currentNodeId: NodeId = startFrom ?? "init";
     let steps = 0;
+    let maxProgress = 0;
 
     for (;;) {
       // Check abort signal
@@ -117,16 +119,18 @@ export class Pipeline {
         return;
       }
 
-      // Yield progress
+      // Yield progress (monotonic — never go backwards on loops)
       {
         const idx = PHASE_ORDER.indexOf(currentNodeId);
         const completed = PHASE_ORDER.slice(0, idx).reduce((s, p) => s + (PHASE_WEIGHTS[p] ?? 0), 0);
         const current = (PHASE_WEIGHTS[currentNodeId] ?? 0) / 2;
+        const computed = Math.min(Math.round(completed + current), 99);
+        maxProgress = Math.max(computed, maxProgress);
         yield {
           type: "progress",
           phase: currentNodeId,
           message: `Running node: ${currentNodeId}`,
-          progress: Math.min(Math.round(completed + current), 99),
+          progress: maxProgress,
         };
       }
 

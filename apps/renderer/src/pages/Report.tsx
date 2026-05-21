@@ -17,6 +17,21 @@ interface TocItem {
   level: number;
 }
 
+function escapeTildesInMarkdown(text: string): string {
+  let inCodeBlock = false;
+  return text
+    .split("\n")
+    .map((line) => {
+      if (line.trim().startsWith("```")) {
+        inCodeBlock = !inCodeBlock;
+        return line;
+      }
+      if (inCodeBlock) return line;
+      return line.replace(/(?<!~)~(?!~)/g, "\\~");
+    })
+    .join("\n");
+}
+
 function getHastText(node: any): string {
   if (!node) return "";
   if (node.type === "text") return node.value || "";
@@ -45,11 +60,9 @@ const components = {
     const text = getHastText(node).trim();
     const isFootnotes = props.id === "footnote-label" || text === "Footnotes";
     if (isFootnotes) {
-      return (
-        <h2 {...props} id="footnote-label">
-          References
-        </h2>
-      );
+      // Suppress remark-gfm's auto-generated "Footnotes" heading.
+      // The backend already injects a "## References" heading.
+      return null;
     }
     return <h2 {...props}>{children}</h2>;
   },
@@ -71,6 +84,28 @@ const components = {
               behavior: "smooth",
               block: "start",
             });
+          }}
+        >
+          {children}
+        </a>
+      );
+    }
+    // Synthetic document URL — open local file via main process
+    if (href?.startsWith("https://doc.coki/")) {
+      const docId = href.slice("https://doc.coki/".length);
+      return (
+        <a
+          {...props}
+          href={href}
+          title="点击打开本地文档"
+          className="text-primary underline cursor-pointer"
+          onClick={async (e: React.MouseEvent) => {
+            e.preventDefault();
+            try {
+              await api.documents.openDocument(docId);
+            } catch (err) {
+              console.error("Failed to open document:", err);
+            }
           }}
         >
           {children}
@@ -170,16 +205,24 @@ export function Report() {
 
   const cleanedReport = useMemo(() => {
     if (!report) return "";
-    return report.replace(/^#\s+.+$/m, "").trimStart();
+    return escapeTildesInMarkdown(
+      report.replace(/^#\s+.+$/m, "").trimStart(),
+    );
   }, [report]);
 
   const scrollToHeading = useCallback((index: number) => {
+    const main = mainRef.current;
     const elements = document.querySelectorAll(
       ".markdown-report h2, .markdown-report h3",
     );
     const el = elements[index];
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (el && main) {
+      const top =
+        el.getBoundingClientRect().top +
+        main.scrollTop -
+        main.getBoundingClientRect().top -
+        20;
+      main.scrollTo({ top, behavior: "smooth" });
     }
   }, []);
 
@@ -221,10 +264,10 @@ export function Report() {
             tocOpen ? "w-[220px]" : "w-11",
           )}
         >
-          <div className="sticky top-8">
+          <div className="sticky top-8 flex flex-col max-h-[calc(100vh-4rem)]">
             {tocOpen ? (
               <>
-                <div className="flex items-center justify-between mb-4 px-3">
+                <div className="flex items-center justify-between mb-4 px-3 shrink-0">
                   <h3 className="text-[13px] font-semibold text-muted-foreground uppercase tracking-wider">
                     目录
                   </h3>
@@ -236,7 +279,7 @@ export function Report() {
                     <ChevronLeft className="w-4 h-4" />
                   </button>
                 </div>
-                <nav className="space-y-0.5">
+                <nav className="space-y-0.5 overflow-y-auto">
                   {headings.map((h, i) => (
                     <button
                       key={i}

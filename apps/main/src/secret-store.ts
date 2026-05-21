@@ -5,10 +5,11 @@ import type { CokiDatabase } from "@coki/engine";
 export class SecretStore {
   constructor(private db: CokiDatabase) {}
 
-  async load(): Promise<{ llmApiKey: string; tavilyApiKey: string }> {
+  async load(): Promise<{ llmApiKey: string; tavilyApiKey: string; zhipuApiKey: string }> {
     const llmKey = await this.getDecrypted("llm_api_key");
     const tavilyKey = await this.getDecrypted("tavily_api_key");
-    return { llmApiKey: llmKey ?? "", tavilyApiKey: tavilyKey ?? "" };
+    const zhipuKey = await this.getDecrypted("zhipu_api_key");
+    return { llmApiKey: llmKey ?? "", tavilyApiKey: tavilyKey ?? "", zhipuApiKey: zhipuKey ?? "" };
   }
 
   async save(key: string, value: string): Promise<void> {
@@ -47,14 +48,17 @@ export class SecretStore {
     return row.plain_value ?? null;
   }
 
-  isConfigured(): { llm: boolean; tavily: boolean } {
+  isConfigured(): { llm: boolean; tavily: boolean; zhipu: boolean } {
     const llm = (this.db as any)["db"]
       .prepare("SELECT 1 FROM config WHERE key = ?")
       .get("llm_api_key") as unknown;
     const tavily = (this.db as any)["db"]
       .prepare("SELECT 1 FROM config WHERE key = ?")
       .get("tavily_api_key") as unknown;
-    return { llm: !!llm, tavily: !!tavily };
+    const zhipu = (this.db as any)["db"]
+      .prepare("SELECT 1 FROM config WHERE key = ?")
+      .get("zhipu_api_key") as unknown;
+    return { llm: !!llm, tavily: !!tavily, zhipu: !!zhipu };
   }
 
   /** Load non-secret config values (baseUrl, models) from the config table. */

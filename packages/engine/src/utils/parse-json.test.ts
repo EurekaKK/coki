@@ -29,4 +29,30 @@ describe("parseJsonFromText", () => {
   it("throws on invalid JSON", () => {
     expect(() => parseJsonFromText("not json at all")).toThrow();
   });
+
+  it("repairs truncated object with missing closing brace", () => {
+    const text = '{"evaluations": [{"url": "a", "score": 0.5}';
+    const result = parseJsonFromText(text) as { evaluations: unknown[] };
+    expect(result.evaluations).toHaveLength(1);
+    expect(result.evaluations[0]).toMatchObject({ url: "a", score: 0.5 });
+  });
+
+  it("repairs truncated array with missing closing bracket", () => {
+    const text = '[1, 2, 3';
+    expect(parseJsonFromText(text)).toEqual([1, 2, 3]);
+  });
+
+  it("repairs nested truncated JSON (object inside array)", () => {
+    const text = '{"items": [{"id": 1}, {"id": 2';
+    const result = parseJsonFromText(text) as { items: unknown[] };
+    expect(result.items).toHaveLength(2);
+    expect(result.items[0]).toEqual({ id: 1 });
+    expect(result.items[1]).toEqual({ id: 2 });
+  });
+
+  it("repairs truncated JSON with unclosed string", () => {
+    const text = '{"message": "hello';
+    const result = parseJsonFromText(text) as { message: string };
+    expect(result.message).toBe("hello");
+  });
 });

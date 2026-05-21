@@ -3,7 +3,7 @@ const { contextBridge, ipcRenderer } = electron;
 
 const api = {
   research: {
-    start: (query: string, options?: { depth?: number; outputLanguage?: string; collectionId?: string }) =>
+    start: (query: string, options?: { depth?: number; outputLanguage?: string; collectionIds?: string[] }) =>
       ipcRenderer.invoke("research:start", query, options),
     cancel: (runId: string) =>
       ipcRenderer.invoke("research:cancel", runId),
@@ -41,6 +41,8 @@ const api = {
       ipcRenderer.invoke("documents:deleteDocument", documentId),
     search: (collectionId: string, query: string) =>
       ipcRenderer.invoke("documents:search", collectionId, query),
+    openDocument: (documentId: string) =>
+      ipcRenderer.invoke("documents:openDocument", documentId),
   },
   on: {
     researchProgress: (callback: (event: unknown) => void) => {

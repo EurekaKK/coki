@@ -123,3 +123,31 @@ Visual overhaul of all 6 renderer pages. Functionality unchanged.
 - GFM footnotes heading renamed from "Footnotes" to "References" via `components.h2`.
 - `code::before/::after { content: none }` suppresses typography plugin auto-backticks.
 - List styles (`disc`/`decimal`) and table borders restored in CSS (Tailwind preflight had removed them).
+
+## Phase 2 additions (document RAG)
+
+Integrated local document collections into the research pipeline via vector search (Vectra). Documents are uploaded, chunked, embedded, and searchable by sub-agents during the ReAct loop. Citations from documents appear in the final report and are clickable to open the local file.
+
+### Document storage & indexing
+- **Schema** (migration v4): `collections`, `documents`, `document_chunks` tables. `documents.file_path` stores the internal copy path (`~/Library/Application Support/@coki/main/documents/<collectionId>/<docId>.ext`).
+- **DocumentManager** (`rag/document-manager.ts`): high-level API for createCollection, importDocument, deleteDocument, search. importDocument parses txt/md/pdf, chunks text, generates embeddings via `EmbeddingProvider`, and stores vectors in per-collection Vectra indexes (`rag/vectra-store.ts`).
+- **Vectra index item ID format**: `{docId}#{chunkIndex}`. `DocumentManager.search` splits this to recover `documentId` + `chunkIndex`, then queries SQLite `document_chunks` for the actual text (Vectra metadata only stores `documentId`, not full text).
+- **Important**: `DocumentManager.search` must read chunk text from SQLite (`db.getDocumentChunk`), not from Vectra metadata. Earlier bug: metadata lacked `text` field, causing `search_documents` to return empty snippets and `extract_document` to fail with "Document not found".
+
+### RAG tool chain (subagent ReAct loop)
+- `search_documents`: searches the user's selected collections for relevant chunks. Returns a candidate list `[{title, url, snippet}]` (like `tavily_search`). URL format: `https://doc.coki/<documentId>`.
+- `extract_document`: fetches the full chunk text from `docContentCache` (populated by `search_documents`). Adds content to `evidence` and `evidenceSpans`. Only handles `https://doc.coki/` URLs.
+- `tavily_extract`: explicitly rejects `https://doc.coki/` URLs with an error directing the LLM to use `extract_document`.
+- Per-subagent `docContentCache` (Map): `search_documents` caches chunk text; `extract_document` reads from it. Cache is scoped to the `runSubagent` call.
+
+### Citation system (document sources)
+- `addCitations` detects `https://doc.coki/` URLs and renders them as markdown links in the References section: `[^N]: [Document Title](https://doc.coki/<id>)`.
+- `Report.tsx` custom `<a>` component intercepts `href="https://doc.coki/..."`, prevents default navigation, extracts the documentId, and calls `api.documents.openDocument(docId)` via IPC.
+- `documents:openDocument` IPC handler (`ipc.ts`) looks up the document by ID and opens its `file_path` with `shell.openPath`.
+
+### Frontend
+- **Library page** (`pages/Library.tsx`): collection creation/deletion, file upload (dialog → copy to app dir → importDocument), document list, inline search within a collection.
+- **Dashboard**: research form includes a collection selector (multi-select). Selected `collectionIds` flow through `initNode` → `PipelineContext` → subagent `runSubagent`.
+
+### MiMo API compatibility
+- `llm/client.ts` sends both `api-key` and `Authorization: Bearer` headers for MiMo endpoint compatibility.

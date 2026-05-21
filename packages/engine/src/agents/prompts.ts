@@ -96,25 +96,53 @@ Output ONLY the JSON object, no other text.`;
 // Subagent (ReAct loop)
 // ===========================================================================
 
-export function buildSubagentSystemPrompt(opts: { withEvaluate: boolean }): string {
-  const toolsList = opts.withEvaluate
+export function buildSubagentSystemPrompt(opts: { withEvaluate: boolean; hasDocuments?: boolean }): string {
+  const webTools = opts.withEvaluate
     ? `- tavily_search: Web search. Returns {title, url, snippet} for each result.
-- evaluate_sources: After a search, evaluate candidate results and pick which deserve full-text extraction (rates relevance, authority, density).
-- tavily_extract: Fetch full article text for specific URLs from previous search results.`
+- evaluate_sources: After all searches, evaluate candidate results and pick which deserve full-text extraction (rates relevance, authority, density).
+- tavily_extract: Fetch full article text for web URLs (http/https) from previous search results.`
     : `- tavily_search: Web search. Returns {title, url, snippet} for each result.
-- tavily_extract: Fetch full article text for specific URLs from previous search results.`;
+- tavily_extract: Fetch full article text for web URLs (http/https) from previous search results.`;
 
-  const workflow = opts.withEvaluate
-    ? `1. Search broadly first — 1–2 queries covering different angles of the subtask
+  const docTools = opts.hasDocuments
+    ? `- search_documents: Search the user's local document collection for relevant passages. Returns {title, url, snippet} for each document.
+- extract_document: Fetch the full text of a specific document source (https://doc.coki/<id>).`
+    : "";
+
+  const toolsList = docTools ? `${docTools}\n${webTools}` : webTools;
+
+  let workflow: string;
+  if (opts.withEvaluate) {
+    workflow = opts.hasDocuments
+      ? `1. search_documents FIRST if the subtask may be covered by uploaded materials
+2. Search the web broadly — 1–2 queries covering different angles of the subtask
+3. Call evaluate_sources to score ALL candidates (both web results and documents) together, and pick the worth-reading ones
+4. Extract full content for high-score sources:
+   - Web URLs (http/https) → use tavily_extract
+   - Document URLs (https://doc.coki/...) → use extract_document
+5. If gaps remain, run ONE more targeted search round
+6. Stop searching (you have a strict budget). Write your report`
+      : `1. Search broadly first — 1–2 queries covering different angles of the subtask
 2. Call evaluate_sources to score the candidates and pick the worth-reading ones
 3. Extract full content only for the high-score sources (2–4 URLs)
 4. If gaps remain, run ONE more targeted search round
-5. Stop searching (you have a strict budget). Write your report`
-    : `1. Search broadly first — 1–2 queries that cover different angles of the subtask
+5. Stop searching (you have a strict budget). Write your report`;
+  } else {
+    workflow = opts.hasDocuments
+      ? `1. search_documents FIRST if the subtask may be covered by uploaded materials
+2. Search broadly first — 1–2 queries that cover different angles of the subtask
+3. Identify the most promising sources from ALL search results (documents and web)
+4. Extract full content for the top 2–4 sources:
+   - Web URLs (http/https) → use tavily_extract
+   - Document URLs (doc://) → use extract_document
+5. If gaps remain, run ONE more targeted search round
+6. Stop searching (you have a strict budget). Write your report`
+      : `1. Search broadly first — 1–2 queries that cover different angles of the subtask
 2. Identify the most promising sources from search results
 3. Extract full content for the top 2–4 sources
 4. If gaps remain, run ONE more targeted search round
 5. Stop searching (you have a strict budget). Write your report`;
+  }
 
   return `You are a specialized research sub-agent. Your job is to thoroughly investigate one focused subtask by gathering evidence, evaluating sources, and producing a well-cited markdown report.
 
@@ -130,8 +158,9 @@ Rules:` + SUBAGENT_RULES_BLOCK;
 const SUBAGENT_RULES_BLOCK = `
 - Use AT MOST 2–3 search rounds total. Don't loop endlessly
 - After EVERY factual claim, include [src: <url>] immediately. Do not batch citations at paragraph end. A claim without [src:] will be treated as unverified
-- Use the EXACT URL returned by tavily_search/extract. Do not rewrite, abbreviate, or guess URLs
-- Prefer primary sources (official docs, academic papers, original data) over secondary aggregators
+- Citation examples: [src: https://example.com/article] for web pages; [src: https://doc.coki/abc123] for documents from search_documents. Use the EXACT URL — do not rewrite, abbreviate, or guess
+- Document sources (https://doc.coki/<id>) are PRIMARY sources. You MUST cite them with [src: https://doc.coki/<id>] exactly as shown in the search_documents results. Skipping document citations is a critical error
+- Prefer primary sources (official docs, academic papers, original data, user-uploaded documents) over secondary aggregators
 - Write analytical prose with full paragraphs, not bullet lists. Discuss mechanisms, causation, context. Use quantitative evidence whenever possible
 - If sources conflict, analyze the disagreement — do not silently pick one side
 - Respect the subtask boundaries — do not drift into adjacent topics
@@ -142,11 +171,19 @@ Finishing:
 - When you have enough evidence, stop calling tools and respond with your final markdown report as plain text
 - The report should be the complete deliverable: title, sections, citations, analysis
 
-Report structure (use these as ## headings):
+Report structure:
 # {subtask title}
 ## Summary
 ## Analysis
-## Evidence Assessment`;
+### Use ### sub-headings here for distinct themes, mechanisms, or sub-topics
+### Each ### must cover a specific, focused aspect of the analysis
+## Evidence Assessment
+
+Rules for headings:
+- # is the report title only
+- ## are the three main sections shown above
+- ### are sub-headings INSIDE ## Analysis. You MUST use ### to break the analysis into focused sub-topics. Do NOT use bold text (**) as a substitute for headings
+- Every logical subdivision within ## Analysis must be a ### heading`;
 
 export const SUBAGENT_USER_TEMPLATE = `Research subtask: {instruction}
 
@@ -164,7 +201,7 @@ Output language: {language}
 
 Requirements:
 - Use markdown with ## headings
-- Cite EVERY factual claim with [src: <url>] using exact URLs from the evidence
+- Cite EVERY factual claim with [src: <url>] using exact URLs from the evidence. Web sources use [src: https://...]; document sources use [src: https://doc.coki/<id>]
 - Include specific data, numbers, dates where available
 - Minimum 800 characters
 - Structure: ## Summary, ## Analysis, ## Evidence Assessment
@@ -283,6 +320,7 @@ TASK COMPLIANCE CHECKLIST (verify before writing each section):
 
 STRUCTURE RULES:
 - Write every section listed in Expected structure in order. Do not skip, merge, or reorder.
+- Within each ## section, preserve and use ### sub-headings to organize distinct themes, mechanisms, or sub-topics. Do NOT flatten sub-headings into bold paragraphs.
 - The Conclusions & Recommendations section (or equivalent) is the last analytical section you write. Do NOT add any new ## sections after it — if you find mid-writing that some content is missing, weave it into an earlier section rather than appending after the conclusion.
 - After you finish the conclusion, write <<END_OF_REPORT>> on its own line. That is your final output — do not write anything else.
 - Do NOT write a References or Bibliography section; it will be added automatically by the citation system.
@@ -290,8 +328,11 @@ STRUCTURE RULES:
 Structure of the final output:
 # {query}
 ## [first section from Expected structure]
+### [sub-topic A]
+### [sub-topic B]
 ## [second section from Expected structure]
-... (all sections in order)
+### [sub-topic A]
+... (all sections in order, each with ### sub-headings as needed)
 ## [Conclusions & Recommendations]
 <<END_OF_REPORT>>`;
 
@@ -333,8 +374,9 @@ Requirements:
 4. Include QUANTITATIVE evidence — specific numbers, dates, benchmarks
 5. Discuss LIMITATIONS and OPEN DEBATES — what do researchers disagree on?
 6. Preserve ALL existing [src: <url>] citations; add more from the evidence as needed
-7. Output language: {language}
-8. Output ONLY the expanded section content INCLUDING its heading line. Do not add preamble or commentary
+7. Use ### sub-headings inside the section to organize distinct themes, mechanisms, or sub-topics. Do NOT flatten everything into a single block of text
+8. Output language: {language}
+9. Output ONLY the expanded section content INCLUDING its heading line. Do not add preamble or commentary
 
 The heading must be exactly: ## {section_heading}`;
 
@@ -365,6 +407,8 @@ Scoring (per source):
 - relevance to subtask (0–5)
 - authority (0–3): prefer .edu, .gov, official docs, academic papers, well-known publishers
 - information density (0–2): avoid SEO farms, "Top 10" listicles, marketing/clickbait
+
+For https://doc.coki/ sources (user-uploaded documents): treat as high-authority primary material. Base authority on content professionalism (medical papers, technical manuals, research reports = high; random notes = medium). Do not downgrade document sources merely because they lack a public domain.
 
 Normalize the composite to 0.0–1.0. Set full_text=true ONLY when the snippet suggests deep, citation-worthy content.
 

@@ -1,8 +1,8 @@
 import electron from "electron";
-const { ipcMain, BrowserWindow, dialog } = electron;
+const { ipcMain, BrowserWindow, dialog, shell } = electron;
 import { readFileSync, existsSync, writeFileSync, copyFileSync, mkdirSync } from "node:fs";
 import { join, extname } from "node:path";
-import type { ResearchEngine, CokiDatabase, DocumentManager } from "@coki/engine";
+import type { ResearchEngine, CokiDatabase } from "@coki/engine";
 import type { SecretStore } from "./secret-store";
 import type { ConfigManager } from "@coki/engine";
 
@@ -12,10 +12,9 @@ export function registerIPCHandlers(
   config: ConfigManager,
   secretStore: SecretStore,
   getMainWindow: () => BrowserWindow | null,
-  documentManager: DocumentManager | null,
 ): void {
   // Research
-  ipcMain.handle("research:start", async (_event, query: string, options?: { depth?: number; outputLanguage?: string; collectionId?: string }) => {
+  ipcMain.handle("research:start", async (_event, query: string, options?: { depth?: number; outputLanguage?: string; collectionIds?: string[] }) => {
     const runId = crypto.randomUUID();
     const mainWindow = getMainWindow();
 
@@ -23,7 +22,7 @@ export function registerIPCHandlers(
     const gen = engine.runResearch(query, (options?.depth ?? 2) as 1 | 2 | 3, {
       outputLanguage: (options?.outputLanguage ?? "zh") as "zh" | "en",
       runId,
-      collectionId: options?.collectionId,
+      collectionIds: options?.collectionIds,
     });
 
     (async () => {
@@ -147,6 +146,9 @@ export function registerIPCHandlers(
       tavily: {
         apiKeyConfigured: status.tavily,
       },
+      zhipu: {
+        apiKeyConfigured: status.zhipu,
+      },
       roles,
     };
   });
@@ -161,6 +163,10 @@ export function registerIPCHandlers(
     if (patch.tavilyApiKey) {
       await secretStore.save("tavily_api_key", patch.tavilyApiKey as string);
       secretsUpdate.tavilyApiKey = patch.tavilyApiKey as string;
+    }
+    if (patch.zhipuApiKey) {
+      await secretStore.save("zhipu_api_key", patch.zhipuApiKey as string);
+      engine.updateZhipuApiKey(patch.zhipuApiKey as string);
     }
     if (Object.keys(secretsUpdate).length > 0) {
       engine.updateSecrets(secretsUpdate);
@@ -183,7 +189,7 @@ export function registerIPCHandlers(
     }
 
     // Handle per-role model overrides
-    const roleNames = ["planner", "splitter", "subagent", "evaluator", "reflection", "synthesis", "citation"];
+    const roleNames = ["planner", "splitter", "subagent", "evaluator", "reflection", "synthesis"];
     const rolesOverride: Record<string, { model: string }> = {};
     for (const role of roleNames) {
       const key = `role.${role}.model`;
@@ -222,27 +228,27 @@ export function registerIPCHandlers(
 
   // Documents
   ipcMain.handle("documents:getCollections", async () => {
-    if (!documentManager) return [];
-    return documentManager.listCollections();
+    if (!engine.getDocumentManager()) return [];
+    return engine.getDocumentManager().listCollections();
   });
 
   ipcMain.handle("documents:createCollection", async (_event, name: string, description?: string) => {
-    if (!documentManager) throw new Error("Document manager not initialized");
-    return documentManager.createCollection({ name, description });
+    if (!engine.getDocumentManager()) throw new Error("Document manager not initialized");
+    return engine.getDocumentManager().createCollection({ name, description });
   });
 
   ipcMain.handle("documents:deleteCollection", async (_event, id: string) => {
-    if (!documentManager) throw new Error("Document manager not initialized");
-    await documentManager.deleteCollection(id);
+    if (!engine.getDocumentManager()) throw new Error("Document manager not initialized");
+    await engine.getDocumentManager().deleteCollection(id);
   });
 
   ipcMain.handle("documents:getDocuments", async (_event, collectionId: string) => {
-    if (!documentManager) return [];
-    return documentManager.listDocuments(collectionId);
+    if (!engine.getDocumentManager()) return [];
+    return engine.getDocumentManager().listDocuments(collectionId);
   });
 
   ipcMain.handle("documents:importFiles", async (_event, collectionId: string) => {
-    if (!documentManager) throw new Error("Document manager not initialized");
+    if (!engine.getDocumentManager()) throw new Error("Document manager not initialized");
     const mainWindow = getMainWindow();
     if (!mainWindow) throw new Error("No main window");
 
@@ -255,7 +261,7 @@ export function registerIPCHandlers(
 
     if (result.canceled || result.filePaths.length === 0) return [];
 
-    const imported: Array<{ id: string; filename: string; status: string }> = [];
+    const imported: Array<{ id: string; filename: string; status: string; error?: string }> = [];
     const docsDir = join(electron.app.getPath("userData"), "documents", collectionId);
     mkdirSync(docsDir, { recursive: true });
 
@@ -269,10 +275,12 @@ export function registerIPCHandlers(
       copyFileSync(filePath, destPath);
 
       try {
-        const id = await documentManager.importDocument(collectionId, filename, destPath);
+        const id = await engine.getDocumentManager().importDocument(collectionId, filename, destPath);
         imported.push({ id, filename, status: "ready" });
       } catch (err) {
-        imported.push({ id: docId, filename, status: "error" });
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(`[documents:importFiles] failed for ${filename}:`, err);
+        imported.push({ id: docId, filename, status: "error", error: message });
       }
     }
 
@@ -280,12 +288,21 @@ export function registerIPCHandlers(
   });
 
   ipcMain.handle("documents:deleteDocument", async (_event, documentId: string) => {
-    if (!documentManager) throw new Error("Document manager not initialized");
-    await documentManager.deleteDocument(documentId);
+    if (!engine.getDocumentManager()) throw new Error("Document manager not initialized");
+    await engine.getDocumentManager().deleteDocument(documentId);
   });
 
   ipcMain.handle("documents:search", async (_event, collectionId: string, query: string) => {
-    if (!documentManager) throw new Error("Document manager not initialized");
-    return documentManager.search(collectionId, query);
+    if (!engine.getDocumentManager()) throw new Error("Document manager not initialized");
+    return engine.getDocumentManager().search(collectionId, query);
+  });
+
+  ipcMain.handle("documents:openDocument", async (_event, documentId: string) => {
+    if (!engine.getDocumentManager()) throw new Error("Document manager not initialized");
+    const doc = engine.getDocumentManager().getDocument(documentId);
+    if (!doc) throw new Error("Document not found");
+    if (!doc.file_path) throw new Error("Document has no file path");
+    const result = await shell.openPath(doc.file_path);
+    if (result !== "") throw new Error(`Failed to open document: ${result}`);
   });
 }

@@ -31,7 +31,7 @@ describe("ResearchEngine", () => {
     const engine = new ResearchEngine(
       db,
       getTestConfigOverrides(),
-      { llmApiKey: apiKey, tavilyApiKey: tavilyKey },
+      { llmApiKey: apiKey, tavilyApiKey: tavilyKey, zhipuApiKey: "" },
     );
 
     const events: Array<{ type: string; phase?: string; message?: string; progress?: number }> = [];
@@ -63,7 +63,7 @@ describe("ResearchEngine", () => {
     const engine = new ResearchEngine(
       db,
       getTestConfigOverrides(),
-      { llmApiKey: apiKey, tavilyApiKey: tavilyKey },
+      { llmApiKey: apiKey, tavilyApiKey: tavilyKey, zhipuApiKey: "" },
     );
 
     const progressEvents: Array<{ phase: string; progress: number }> = [];
