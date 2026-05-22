@@ -7,3 +7,4 @@ dist-electron/
 *.log
 .DS_Store
 tavily api key.md
+.claude/
