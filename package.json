@@ -1,5 +1,8 @@
 {
   "name": "coki",
+  "version": "0.1.0-alpha",
+  "description": "AI-powered deep research desktop app",
+  "author": "EurekaKK",
   "private": true,
   "main": "apps/main/dist/index.cjs",
   "packageManager": "pnpm@9.15.0",
@@ -17,13 +20,13 @@
   "devDependencies": {
     "@types/node": "^24.0.0",
     "concurrently": "^9.1.0",
+    "electron": "32.2.7",
     "electron-builder": "^26.8.1",
     "eslint": "^9.0.0",
     "typescript": "^5.7.0",
     "vitest": "^3.1.0"
   },
   "dependencies": {
-    "better-sqlite3": "11.7.0",
-    "electron": "32.2.7"
+    "better-sqlite3": "11.7.0"
   }
 }
