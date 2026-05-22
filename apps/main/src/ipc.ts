@@ -5,6 +5,7 @@ import { join, extname } from "node:path";
 import type { ResearchEngine, CokiDatabase } from "@coki/engine";
 import type { SecretStore } from "./secret-store";
 import type { ConfigManager } from "@coki/engine";
+import type { ImportProgressInfo } from "@coki/engine/src/rag/document-manager";
 
 export function registerIPCHandlers(
   engine: ResearchEngine,
@@ -265,25 +266,46 @@ export function registerIPCHandlers(
     const docsDir = join(electron.app.getPath("userData"), "documents", collectionId);
     mkdirSync(docsDir, { recursive: true });
 
-    for (const filePath of result.filePaths) {
+    const sendProgress = (data: { current: number; total: number; filename?: string; status: string; error?: string }) => {
+      mainWindow?.webContents.send("documents:importProgress", data);
+    };
+
+    const total = result.filePaths.length;
+    for (let i = 0; i < result.filePaths.length; i++) {
+      const filePath = result.filePaths[i];
       const filename = filePath.split("/").pop() ?? "unknown";
       const ext = extname(filename).slice(1).toLowerCase();
-      if (!["txt", "md", "pdf"].includes(ext)) continue;
+      if (!["txt", "md", "pdf"].includes(ext)) {
+        sendProgress({ current: i + 1, total, filename, status: "skipped" });
+        continue;
+      }
+
+      sendProgress({ current: i + 1, total, filename, status: "started" });
 
       const docId = crypto.randomUUID();
       const destPath = join(docsDir, `${docId}.${ext}`);
       copyFileSync(filePath, destPath);
 
       try {
-        const id = await engine.getDocumentManager().importDocument(collectionId, filename, destPath);
+        const id = await engine.getDocumentManager().importDocument(
+          collectionId,
+          filename,
+          destPath,
+          (detail: ImportProgressInfo) => {
+            sendProgress({ current: i + 1, total, filename, status: "processing", detail });
+          },
+        );
         imported.push({ id, filename, status: "ready" });
+        sendProgress({ current: i + 1, total, filename, status: "done" });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         console.error(`[documents:importFiles] failed for ${filename}:`, err);
         imported.push({ id: docId, filename, status: "error", error: message });
+        sendProgress({ current: i + 1, total, filename, status: "error", error: message });
       }
     }
 
+    sendProgress({ current: total, total, status: "complete" });
     return imported;
   });
 

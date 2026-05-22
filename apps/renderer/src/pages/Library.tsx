@@ -29,6 +29,20 @@ export function Library() {
   const [newCollectionName, setNewCollectionName] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<Array<{ documentId: string; text: string; score: number }>>([]);
+  const [isImporting, setIsImporting] = useState(false);
+  interface ImportDetail {
+    phase: string;
+    chunkCount?: number;
+    currentChunk?: number;
+    message?: string;
+  }
+  const [importProgress, setImportProgress] = useState<{
+    current: number;
+    total: number;
+    filename: string;
+    status: string;
+    detail?: ImportDetail;
+  } | null>(null);
 
   const loadCollections = useCallback(async () => {
     const cols = await api.documents.getCollections();
@@ -67,8 +81,40 @@ export function Library() {
 
   const handleImport = async () => {
     if (!selectedCollection) return;
-    await api.documents.importFiles(selectedCollection);
-    await loadDocuments(selectedCollection);
+    setIsImporting(true);
+    setImportProgress(null);
+
+    const unsubscribe = api.on.importProgress((data: unknown) => {
+      const evt = data as {
+        current: number;
+        total: number;
+        filename?: string;
+        status: string;
+        detail?: ImportDetail;
+      };
+      setImportProgress({
+        current: evt.current,
+        total: evt.total,
+        filename: evt.filename ?? "",
+        status: evt.status,
+        detail: evt.detail,
+      });
+      if (evt.status === "complete") {
+        unsubscribe();
+        setIsImporting(false);
+        setImportProgress(null);
+        loadDocuments(selectedCollection);
+      }
+    });
+
+    try {
+      await api.documents.importFiles(selectedCollection);
+    } catch (err) {
+      console.error("Import failed:", err);
+      unsubscribe();
+      setIsImporting(false);
+      setImportProgress(null);
+    }
   };
 
   const handleDeleteDocument = async (docId: string) => {
@@ -204,6 +250,93 @@ export function Library() {
           </div>
         )}
       </div>
+
+      {/* Import progress overlay */}
+      {isImporting && importProgress && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <Card className="w-[26rem] shadow-xl">
+            <CardContent className="p-6 space-y-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-base font-semibold">正在导入文件</h3>
+                <span className="text-xs text-muted-foreground tabular-nums">
+                  {importProgress.current} / {importProgress.total}
+                </span>
+              </div>
+
+              {/* Overall file progress */}
+              <div className="w-full h-2 bg-secondary rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-primary transition-all duration-300"
+                  style={{
+                    width: `${Math.max(2, (importProgress.current / Math.max(importProgress.total, 1)) * 100)}%`,
+                  }}
+                />
+              </div>
+
+              {/* Current file detail */}
+              <div className="space-y-3">
+                <div className="text-sm font-medium truncate" title={importProgress.filename}>
+                  {importProgress.filename}
+                </div>
+
+                {(() => {
+                  const d = importProgress.detail;
+                  if (!d) {
+                    return (
+                      <>
+                        <div className="text-xs text-muted-foreground">准备中...</div>
+                        <div className="w-full h-1.5 bg-secondary rounded-full overflow-hidden">
+                          <div className="h-full bg-primary/70 animate-pulse w-1/3" />
+                        </div>
+                      </>
+                    );
+                  }
+                  const phaseText: Record<string, string> = {
+                    parsing: "正在解析文件...",
+                    chunking: "正在分块...",
+                    chunked: `已分块，共 ${d.chunkCount ?? 0} 个片段`,
+                    embedding: "正在生成向量嵌入...",
+                    storing: "正在存入向量库...",
+                    chunkStored: `已入库 ${d.currentChunk ?? 0} / ${d.chunkCount ?? 0} 个片段`,
+                    done: "导入完成",
+                    error: `导入失败: ${d.message ?? ""}`,
+                  };
+                  let pct = 0;
+                  switch (d.phase) {
+                    case "parsing": pct = 10; break;
+                    case "chunking": pct = 20; break;
+                    case "chunked": pct = 30; break;
+                    case "embedding": pct = 45; break;
+                    case "storing": pct = 50; break;
+                    case "chunkStored": {
+                      const cnt = d.chunkCount ?? 1;
+                      const cur = d.currentChunk ?? 0;
+                      pct = 50 + (cur / cnt) * 45;
+                      break;
+                    }
+                    case "done": pct = 100; break;
+                    default: pct = 0;
+                  }
+                  return (
+                    <>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-muted-foreground">{phaseText[d.phase] ?? "处理中..."}</span>
+                        <span className="text-muted-foreground tabular-nums">{Math.round(pct)}%</span>
+                      </div>
+                      <div className="w-full h-1.5 bg-secondary rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-primary/70 transition-all duration-300"
+                          style={{ width: `${Math.max(2, pct)}%` }}
+                        />
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

@@ -5,7 +5,8 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { FileText, Clock, Trash2, X, AlertCircle } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { FileText, Clock, Trash2, X, AlertCircle, Search } from "lucide-react";
 
 interface RunSummary {
   id: string;
@@ -43,10 +44,17 @@ const LEVEL_ORDER = ["fatal", "error", "warn", "info", "debug", "trace"];
 
 export function History() {
   const [runs, setRuns] = useState<RunSummary[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
   const [failedLogs, setFailedLogs] = useState<TraceLog[]>([]);
   const [failedRunQuery, setFailedRunQuery] = useState<string>("");
   const [showModal, setShowModal] = useState(false);
   const navigate = useNavigate();
+
+  const filteredRuns = searchQuery.trim()
+    ? runs.filter((run) =>
+        run.user_query.toLowerCase().includes(searchQuery.trim().toLowerCase())
+      )
+    : runs;
 
   const loadRuns = async () => {
     const data = await api.research.history();
@@ -78,24 +86,54 @@ export function History() {
     }
   };
 
+  const emptyState = (
+    <div className="flex flex-col items-center justify-center py-16">
+      <div className="w-16 h-16 rounded-full bg-secondary flex items-center justify-center mb-6">
+        <FileText className="w-7 h-7 text-muted-foreground" />
+      </div>
+      <h2 className="text-[17px] font-semibold mb-2">暂无研究记录</h2>
+      <p className="text-[15px] text-muted-foreground mb-6">开始你的第一次深度研究</p>
+      <Button onClick={() => navigate("/")}>开始新研究</Button>
+    </div>
+  );
+
+  const noMatchState = (
+    <div className="flex flex-col items-center justify-center py-16">
+      <div className="w-16 h-16 rounded-full bg-secondary flex items-center justify-center mb-6">
+        <Search className="w-7 h-7 text-muted-foreground" />
+      </div>
+      <h2 className="text-[17px] font-semibold mb-2">未找到匹配记录</h2>
+      <p className="text-[15px] text-muted-foreground">换个关键词试试</p>
+    </div>
+  );
+
   if (runs.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-full max-w-[720px] mx-auto px-8 py-16">
-        <div className="w-16 h-16 rounded-full bg-secondary flex items-center justify-center mb-6">
-          <FileText className="w-7 h-7 text-muted-foreground" />
-        </div>
-        <h2 className="text-[17px] font-semibold mb-2">暂无研究记录</h2>
-        <p className="text-[15px] text-muted-foreground mb-6">开始你的第一次深度研究</p>
-        <Button onClick={() => navigate("/")}>开始新研究</Button>
+      <div className="max-w-[720px] mx-auto px-8 py-16">
+        {emptyState}
       </div>
     );
   }
 
   return (
     <div className="max-w-[720px] mx-auto px-8 py-8">
-      <h2 className="text-[22px] font-semibold tracking-tight mb-6">历史记录</h2>
-      <div className="space-y-3">
-        {runs.map((run) => (
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-[22px] font-semibold tracking-tight">历史记录</h2>
+      </div>
+      <div className="relative mb-5">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+        <Input
+          placeholder="搜索报告标题..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="pl-9 h-10 bg-secondary/50 border-0 focus-visible:ring-1 focus-visible:ring-ring"
+        />
+      </div>
+      {filteredRuns.length === 0 ? (
+        noMatchState
+      ) : (
+        <div className="space-y-3">
+          {filteredRuns.map((run) => (
           <Card
             key={run.id}
             className="p-5 cursor-pointer transition-all duration-200 hover:shadow-md hover:border-border/80 group"
@@ -137,13 +175,14 @@ export function History() {
                     navigate(`/timeline/${run.id}`);
                   }}
                 >
-                  查看时间线
+                  查看日志
                 </button>
               </div>
             )}
           </Card>
         ))}
       </div>
+      )}
 
       {/* Failed task logs modal */}
       {showModal && (

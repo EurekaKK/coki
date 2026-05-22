@@ -36,7 +36,7 @@ export function CostPanel({ runId }: { runId: string }) {
     <Card className="border-none shadow-none bg-transparent">
       <Collapsible open={open} onOpenChange={setOpen}>
         <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium text-foreground hover:bg-secondary rounded-xl transition-colors duration-150">
-          <span>成本与令牌</span>
+          <span>Token和耗时统计</span>
           {open ? (
             <ChevronUp className="w-4 h-4 text-muted-foreground" />
           ) : (
@@ -51,7 +51,7 @@ export function CostPanel({ runId }: { runId: string }) {
                   <div className="text-[22px] font-semibold text-foreground">
                     {formatTokens(data.totalInput + data.totalOutput)}
                   </div>
-                  <div className="text-[11px] text-muted-foreground mt-1">总令牌数</div>
+                  <div className="text-[11px] text-muted-foreground mt-1">Tokens</div>
                 </div>
                 <div className="p-3 rounded-xl bg-secondary">
                   <div className="text-[22px] font-semibold text-foreground">{data.callCount}</div>

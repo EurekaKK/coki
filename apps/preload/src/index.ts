@@ -52,6 +52,13 @@ const api = {
         ipcRenderer.removeListener("research:progress", handler);
       };
     },
+    importProgress: (callback: (event: unknown) => void) => {
+      const handler = (_event: unknown, data: unknown) => callback(data);
+      ipcRenderer.on("documents:importProgress", handler);
+      return () => {
+        ipcRenderer.removeListener("documents:importProgress", handler);
+      };
+    },
   },
 };
 

@@ -9,6 +9,12 @@ import { api } from "../lib/api";
 import { CostPanel } from "../components/CostPanel";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+  TooltipProvider,
+} from "@/components/ui/tooltip";
 import { ChevronLeft, List } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -55,76 +61,37 @@ const ensureProperties = () => (tree: any) => {
   walk(tree);
 };
 
-const components = {
-  h2: ({ node, children, ...props }: any) => {
-    const text = getHastText(node).trim();
-    const isFootnotes = props.id === "footnote-label" || text === "Footnotes";
-    if (isFootnotes) {
-      // Suppress remark-gfm's auto-generated "Footnotes" heading.
-      // The backend already injects a "## References" heading.
-      return null;
+const DOC_URL_PREFIX = "https://doc.coki/";
+
+interface FootnoteInfo {
+  url: string;
+  title?: string;
+}
+
+function parseFootnoteMap(report: string): Map<number, FootnoteInfo> {
+  const map = new Map<number, FootnoteInfo>();
+  const pattern = /^\[\^(\d+)\]:\s*(.+)$/gm;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(report)) !== null) {
+    const num = parseInt(match[1], 10);
+    const content = match[2].trim();
+
+    const linkMatch = content.match(/^\[(.*?)\]\((.*?)\)$/);
+    if (linkMatch) {
+      map.set(num, { title: linkMatch[1], url: linkMatch[2] });
+      continue;
     }
-    return <h2 {...props}>{children}</h2>;
-  },
-  h3: ({ node, children, ...props }: any) => {
-    return <h3 {...props}>{children}</h3>;
-  },
-  a: ({ href, children, ...props }: any) => {
-    if (href?.startsWith("#")) {
-      return (
-        <a
-          {...props}
-          href={href}
-          onClick={(e: React.MouseEvent) => {
-            e.preventDefault();
-            const target = document.getElementById(
-              decodeURIComponent(href.slice(1)),
-            );
-            target?.scrollIntoView({
-              behavior: "smooth",
-              block: "start",
-            });
-          }}
-        >
-          {children}
-        </a>
-      );
+
+    const autolinkMatch = content.match(/^<(.*?)>$/);
+    if (autolinkMatch) {
+      map.set(num, { url: autolinkMatch[1] });
+      continue;
     }
-    // Synthetic document URL — open local file via main process
-    if (href?.startsWith("https://doc.coki/")) {
-      const docId = href.slice("https://doc.coki/".length);
-      return (
-        <a
-          {...props}
-          href={href}
-          title="点击打开本地文档"
-          className="text-primary underline cursor-pointer"
-          onClick={async (e: React.MouseEvent) => {
-            e.preventDefault();
-            try {
-              await api.documents.openDocument(docId);
-            } catch (err) {
-              console.error("Failed to open document:", err);
-            }
-          }}
-        >
-          {children}
-        </a>
-      );
-    }
-    return (
-      <a {...props} href={href} target="_blank" rel="noreferrer">
-        {children}
-      </a>
-    );
-  },
-  td: ({ children, isHeader: _isHeader, ...props }: any) => (
-    <td {...props}>{children}</td>
-  ),
-  th: ({ children, isHeader: _isHeader, ...props }: any) => (
-    <th {...props}>{children}</th>
-  ),
-};
+
+    map.set(num, { url: content });
+  }
+  return map;
+}
 
 export function Report() {
   const { runId } = useParams<{ runId: string }>();
@@ -209,6 +176,126 @@ export function Report() {
       report.replace(/^#\s+.+$/m, "").trimStart(),
     );
   }, [report]);
+
+  const footnoteMap = useMemo(() => {
+    if (!report) return new Map<number, FootnoteInfo>();
+    return parseFootnoteMap(report);
+  }, [report]);
+
+  const components = useMemo(() => {
+    return {
+      h2: ({ node, children, ...props }: any) => {
+        const text = getHastText(node).trim();
+        const isFootnotes = props.id === "footnote-label" || text === "Footnotes";
+        if (isFootnotes) {
+          // Suppress remark-gfm's auto-generated "Footnotes" heading.
+          // The backend already injects a "## References" heading.
+          return null;
+        }
+        return <h2 {...props}>{children}</h2>;
+      },
+      h3: ({ node, children, ...props }: any) => {
+        return <h3 {...props}>{children}</h3>;
+      },
+      a: ({ href, children, node, ...props }: any) => {
+        // Footnote reference — show tooltip and open source URL on click
+        if (props["data-footnote-ref"]) {
+          const refNum = parseInt(getHastText(node), 10);
+          const info = footnoteMap.get(refNum);
+          if (info) {
+            return (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <a
+                    {...props}
+                    href={href}
+                    onClick={(e: React.MouseEvent) => {
+                      e.preventDefault();
+                      if (info.url.startsWith(DOC_URL_PREFIX)) {
+                        const docId = info.url.slice(DOC_URL_PREFIX.length);
+                        api.documents.openDocument(docId).catch(console.error);
+                      } else {
+                        window.open(info.url, "_blank", "noopener,noreferrer");
+                      }
+                    }}
+                  >
+                    {children}
+                  </a>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p className="max-w-xs break-words">
+                    {info.title || info.url}
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+            );
+          }
+        }
+
+        // Footnote backref — suppress the arrow
+        if (props["data-footnote-backref"]) {
+          return null;
+        }
+
+        // Hash links — smooth scroll (not HashRouter navigation)
+        if (href?.startsWith("#")) {
+          return (
+            <a
+              {...props}
+              href={href}
+              onClick={(e: React.MouseEvent) => {
+                e.preventDefault();
+                const target = document.getElementById(
+                  decodeURIComponent(href.slice(1)),
+                );
+                target?.scrollIntoView({
+                  behavior: "smooth",
+                  block: "start",
+                });
+              }}
+            >
+              {children}
+            </a>
+          );
+        }
+
+        // Synthetic document URL — open local file via main process
+        if (href?.startsWith("https://doc.coki/")) {
+          const docId = href.slice("https://doc.coki/".length);
+          return (
+            <a
+              {...props}
+              href={href}
+              title="点击打开本地文档"
+              className="text-primary underline cursor-pointer"
+              onClick={async (e: React.MouseEvent) => {
+                e.preventDefault();
+                try {
+                  await api.documents.openDocument(docId);
+                } catch (err) {
+                  console.error("Failed to open document:", err);
+                }
+              }}
+            >
+              {children}
+            </a>
+          );
+        }
+
+        return (
+          <a {...props} href={href} target="_blank" rel="noreferrer">
+            {children}
+          </a>
+        );
+      },
+      td: ({ children, isHeader: _isHeader, ...props }: any) => (
+        <td {...props}>{children}</td>
+      ),
+      th: ({ children, isHeader: _isHeader, ...props }: any) => (
+        <th {...props}>{children}</th>
+      ),
+    };
+  }, [footnoteMap]);
 
   const scrollToHeading = useCallback((index: number) => {
     const main = mainRef.current;
@@ -321,19 +408,21 @@ export function Report() {
           </h1>
         </div>
 
-        <article className="markdown-report">
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: false }]]}
-            rehypePlugins={[
-              ensureProperties,
-              rehypeKatex,
-              [rehypeHighlight, { detect: true, ignoreMissing: true }],
-            ]}
-            components={components}
-          >
-            {cleanedReport}
-          </ReactMarkdown>
-        </article>
+        <TooltipProvider delayDuration={100}>
+          <article className="markdown-report">
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: false }]]}
+              rehypePlugins={[
+                ensureProperties,
+                rehypeKatex,
+                [rehypeHighlight, { detect: true, ignoreMissing: true }],
+              ]}
+              components={components}
+            >
+              {cleanedReport}
+            </ReactMarkdown>
+          </article>
+        </TooltipProvider>
 
         {/* Action bar */}
         <div className="flex gap-3 items-center justify-center mt-12 pt-8 border-t border-border">
@@ -345,7 +434,7 @@ export function Report() {
             size="sm"
             onClick={() => navigate(`/timeline/${runId}`)}
           >
-            查看时间线
+            查看日志
           </Button>
         </div>
 

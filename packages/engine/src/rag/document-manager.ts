@@ -28,6 +28,13 @@ export interface ChunkSearchResult {
   score: number;
 }
 
+export interface ImportProgressInfo {
+  phase: "parsing" | "chunking" | "chunked" | "embedding" | "storing" | "chunkStored" | "done" | "error";
+  chunkCount?: number;
+  currentChunk?: number;
+  message?: string;
+}
+
 export class DocumentManager {
   private db: CokiDatabase;
   private indexBasePath: string;
@@ -74,7 +81,16 @@ export class DocumentManager {
     this.db.deleteCollection(id);
   }
 
-  async importDocument(collectionId: string, filename: string, filePath: string): Promise<string> {
+  async importDocument(
+    collectionId: string,
+    filename: string,
+    filePath: string,
+    onProgress?: (info: ImportProgressInfo) => void,
+  ): Promise<string> {
+    const report = (info: ImportProgressInfo) => {
+      if (onProgress) onProgress(info);
+    };
+
     const collection = this.db.getCollection(collectionId);
     if (!collection) throw new Error(`Collection not found: ${collectionId}`);
 
@@ -86,12 +102,16 @@ export class DocumentManager {
     const docId = this.db.createDocument({ collectionId, filename, filePath });
 
     try {
+      report({ phase: "parsing" });
       const buffer = readFileSync(filePath);
       const parsed = await parseDocument(buffer, ext);
+
+      report({ phase: "chunking" });
       const chunks = chunkText(parsed.text, {
         chunkSize: collection.chunk_size,
         chunkOverlap: collection.chunk_overlap,
       });
+      report({ phase: "chunked", chunkCount: chunks.length });
 
       for (let i = 0; i < chunks.length; i++) {
         const chunk = chunks[i];
@@ -106,19 +126,24 @@ export class DocumentManager {
       }
 
       if (chunks.length > 0) {
+        report({ phase: "embedding", chunkCount: chunks.length });
         const texts = chunks.map((c) => c.text);
         const embeddings = await this.embeddingProvider.embed(texts);
         const store = await this.getStore(collectionId, collection.hybrid_alpha, collection.top_k);
 
+        report({ phase: "storing", chunkCount: chunks.length });
         for (let i = 0; i < chunks.length; i++) {
           await store.addDocument(`${docId}#${i}`, chunks[i].text, embeddings[i]);
+          report({ phase: "chunkStored", currentChunk: i + 1, chunkCount: chunks.length });
         }
       }
 
       this.db.updateDocumentStatus(docId, "ready", undefined, chunks.length);
+      report({ phase: "done", chunkCount: chunks.length });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.db.updateDocumentStatus(docId, "error", message);
+      report({ phase: "error", message });
       throw err;
     }
 

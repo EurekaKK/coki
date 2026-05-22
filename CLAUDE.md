@@ -128,6 +128,24 @@ Visual overhaul of all 6 renderer pages. Functionality unchanged.
 
 Integrated local document collections into the research pipeline via vector search (Vectra). Documents are uploaded, chunked, embedded, and searchable by sub-agents during the ReAct loop. Citations from documents appear in the final report and are clickable to open the local file.
 
+### Frontend dependencies
+- `react-markdown` v9 + `remark-gfm` v4 (upgraded from v8/v3 for React 19 compatibility). v9 uses `vfile` v6 which resolves type mismatches with rehype plugins.
+- `hast-util-to-jsx-runtime` passes `node` (hast node) to custom component overrides when `passNode: true`.
+
+### Report page (footnote enhancements)
+- **Footnote ref tooltip**: override `components.a` for `data-footnote-ref`, wrap with Radix Tooltip showing source title/URL (`info.title || info.url`). TooltipProvider `delayDuration` set to 100ms.
+- **Footnote ref click-to-open**: clicking `[^N]` opens the source URL directly instead of scrolling to the footnote definition. External URLs use `window.open(url, "_blank")` (triggers Electron `setWindowOpenHandler`). `doc.coki` URLs use `api.documents.openDocument(docId)` via IPC.
+- **Suppress backref arrow**: `components.a` returns `null` for `data-footnote-backref`, removing the ↩ link from the footnotes section.
+- **Footnote ref font size**: `.markdown-report a[href^="#user-content-fn"]` set to `0.9em` (was `0.75em`) for better clickability.
+- `parseFootnoteMap(report)` extracts `[^N]: [Title](url)` and `[^N]: <url>` definitions into a `Map<number, {url, title?}>` used by the `a` component override.
+
+### History page
+- **Search by title**: input field filters `runs` by `user_query` (case-insensitive substring match). Empty search shows all runs; no matches shows a dedicated empty state.
+
+### UI labels
+- CostPanel: "成本与令牌" → "Token和耗时统计"; "总令牌数" → "Tokens".
+- Action buttons: "查看时间线" → "查看日志".
+
 ### Document storage & indexing
 - **Schema** (migration v4): `collections`, `documents`, `document_chunks` tables. `documents.file_path` stores the internal copy path (`~/Library/Application Support/@coki/main/documents/<collectionId>/<docId>.ext`).
 - **DocumentManager** (`rag/document-manager.ts`): high-level API for createCollection, importDocument, deleteDocument, search. importDocument parses txt/md/pdf, chunks text, generates embeddings via `EmbeddingProvider`, and stores vectors in per-collection Vectra indexes (`rag/vectra-store.ts`).
