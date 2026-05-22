@@ -1,10 +1,14 @@
 {
   "name": "coki",
   "private": true,
+  "main": "apps/main/dist/index.cjs",
   "packageManager": "pnpm@9.15.0",
   "scripts": {
     "dev": "concurrently \"pnpm --filter @coki/renderer dev\" \"pnpm --filter @coki/main dev\"",
     "build": "pnpm --filter @coki/renderer build && pnpm --filter @coki/preload build && pnpm --filter @coki/main build",
+    "release": "pnpm build && electron-builder",
+    "release:mac": "pnpm build && electron-builder --mac",
+    "release:win": "pnpm build && electron-builder --win",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint . --ext .ts,.tsx",
@@ -13,6 +17,7 @@
   "devDependencies": {
     "@types/node": "^24.0.0",
     "concurrently": "^9.1.0",
+    "electron-builder": "^26.8.1",
     "eslint": "^9.0.0",
     "typescript": "^5.7.0",
     "vitest": "^3.1.0"

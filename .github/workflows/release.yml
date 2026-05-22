@@ -1,0 +1,83 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            target: mac
+            artifact: '*.dmg'
+          - os: windows-latest
+            target: win
+            artifact: '*.exe'
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build renderer
+        run: pnpm --filter @coki/renderer build
+
+      - name: Build preload
+        run: pnpm --filter @coki/preload build
+
+      - name: Build main
+        run: pnpm --filter @coki/main build
+
+      - name: Build release
+        run: pnpm electron-builder --${{ matrix.target }} --publish=never
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_OPTIONS: '--max-old-space-size=4096'
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coki-${{ matrix.target }}
+          path: dist-electron/${{ matrix.artifact }}
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download macOS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: coki-mac
+          path: dist-electron/mac
+
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: coki-win
+          path: dist-electron/win
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist-electron/mac/*.dmg
+            dist-electron/win/*.exe
+          draft: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -6,14 +6,45 @@ files:
   - "apps/main/dist/**/*"
   - "apps/preload/dist/**/*"
   - "apps/renderer/dist/**/*"
+  - "package.json"
   - "node_modules/**/*"
+  - "!node_modules/.cache"
+  - "!node_modules/.pnpm"
+  - "!node_modules/.modules.yaml"
+  - "!node_modules/**/*.d.ts"
+  - "!node_modules/**/*.map"
+  - "!node_modules/**/*.md"
+  - "!node_modules/**/test/**/*"
+  - "!node_modules/**/tests/**/*"
+  - "!node_modules/**/docs/**/*"
+  - "!node_modules/**/example*/**/*"
+  - "!node_modules/**/demo*/**/*"
 extraResources:
   - from: "packages/engine/src/"
     to: "engine/"
 mac:
   category: public.app-category.productivity
-  target: dmg
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
 win:
-  target: nsis
-linux:
-  target: AppImage
+  target:
+    - target: nsis
+      arch:
+        - x64
+        - ia32
+  verifyUpdateCodeSignature: false
+publish:
+  provider: github
+  owner: EurekaKK
+  repo: coki
+npmRebuild: true
+asarUnpack:
+  - "node_modules/better-sqlite3/**/*"
+  - "node_modules/onnxruntime-node/**/*"
