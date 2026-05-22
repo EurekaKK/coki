@@ -5,8 +5,8 @@
   "type": "module",
   "main": "./dist/index.cjs",
   "scripts": {
-    "dev": "esbuild src/index.ts --bundle --platform=node --format=cjs --outfile=dist/index.cjs --external:electron --external:better-sqlite3 --external:jsdom --external:@xenova/transformers --external:onnxruntime-node && NODE_ENV=development electron .",
-    "build": "esbuild src/index.ts --bundle --platform=node --format=cjs --outfile=dist/index.cjs --external:electron --external:better-sqlite3 --external:jsdom --external:@xenova/transformers --external:onnxruntime-node"
+    "dev": "esbuild src/index.ts --bundle --platform=node --format=cjs --outfile=dist/index.cjs --external:electron --external:better-sqlite3 --external:jsdom --external:@xenova/transformers --external:@huggingface/transformers --external:onnxruntime-node && NODE_ENV=development electron .",
+    "build": "esbuild src/index.ts --bundle --platform=node --format=cjs --outfile=dist/index.cjs --external:electron --external:better-sqlite3 --external:jsdom --external:@xenova/transformers --external:@huggingface/transformers --external:onnxruntime-node"
   },
   "dependencies": {
     "@coki/engine": "workspace:*",
