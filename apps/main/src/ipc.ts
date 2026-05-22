@@ -133,6 +133,7 @@ export function registerIPCHandlers(
   ipcMain.handle("config:get", async () => {
     const cfg = config.getConfig();
     const status = secretStore.isConfigured();
+    const keys = await secretStore.load();
     const roles: Record<string, { model: string }> = {};
     for (const name of Object.keys(cfg.roles)) {
       roles[name] = { model: config.getRole(name).model };
@@ -141,13 +142,16 @@ export function registerIPCHandlers(
       llm: {
         baseUrl: cfg.llm.baseUrl,
         model: cfg.llm.model,
+        apiKey: keys.llmApiKey,
         apiKeyConfigured: status.llm,
         thinking: cfg.llm.thinking,
       },
       tavily: {
+        apiKey: keys.tavilyApiKey,
         apiKeyConfigured: status.tavily,
       },
       zhipu: {
+        apiKey: keys.zhipuApiKey,
         apiKeyConfigured: status.zhipu,
       },
       roles,
