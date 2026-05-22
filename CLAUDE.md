@@ -146,6 +146,10 @@ Integrated local document collections into the research pipeline via vector sear
 - CostPanel: "成本与令牌" → "Token和耗时统计"; "总令牌数" → "Tokens".
 - Action buttons: "查看时间线" → "查看日志".
 
+### Settings page
+- **API Key visibility toggle**: all three API key inputs (LLM, Tavily, 智谱) have an eye icon button (Eye/EyeOff from lucide-react) that toggles between `type="password"` and `type="text"`. The button uses `onMouseDown` with `e.preventDefault()` to prevent input blur, then programmatically calls `input.focus()` so the placeholder state clears and the actual empty input (or typed value) is shown.
+- **Zhipu API Key label**: added missing `<Label>API Key</Label>` and red-border validation state for the 智谱 Embedding section, matching LLM and Tavily sections.
+
 ### Document storage & indexing
 - **Schema** (migration v4): `collections`, `documents`, `document_chunks` tables. `documents.file_path` stores the internal copy path (`~/Library/Application Support/@coki/main/documents/<collectionId>/<docId>.ext`).
 - **DocumentManager** (`rag/document-manager.ts`): high-level API for createCollection, importDocument, deleteDocument, search. importDocument parses txt/md/pdf, chunks text, generates embeddings via `EmbeddingProvider`, and stores vectors in per-collection Vectra indexes (`rag/vectra-store.ts`).

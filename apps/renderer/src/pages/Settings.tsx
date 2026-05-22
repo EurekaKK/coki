@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
+import { Eye, EyeOff } from "lucide-react";
 
 interface ConfigData {
   llm: { baseUrl: string; model: string; apiKeyConfigured: boolean; thinking: boolean };
@@ -35,6 +36,9 @@ export function Settings() {
   const [llmKeyFocused, setLlmKeyFocused] = useState(false);
   const [tavilyKeyFocused, setTavilyKeyFocused] = useState(false);
   const [zhipuKeyFocused, setZhipuKeyFocused] = useState(false);
+  const [llmKeyVisible, setLlmKeyVisible] = useState(false);
+  const [tavilyKeyVisible, setTavilyKeyVisible] = useState(false);
+  const [zhipuKeyVisible, setZhipuKeyVisible] = useState(false);
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
@@ -117,15 +121,25 @@ export function Settings() {
 
             <div className="space-y-1.5">
               <Label className={cn(!config?.llm.apiKeyConfigured && !llmKey && "text-red-500")}>API Key</Label>
-              <Input
-                type="password"
-                placeholder={config?.llm.apiKeyConfigured && !llmKeyFocused ? "" : "输入 LLM API key..."}
-                value={config?.llm.apiKeyConfigured && !llmKeyFocused && !llmKey ? "••••••••" : llmKey}
-                onChange={(e) => setLlmKey(e.target.value)}
-                onFocus={() => { setLlmKeyFocused(true); if (!llmKey) setLlmKey(""); }}
-                onBlur={() => { if (!llmKey) setLlmKeyFocused(false); }}
-                className={cn(!config?.llm.apiKeyConfigured && !llmKey && "border-red-500")}
-              />
+              <div className="relative">
+                <Input
+                  type={llmKeyVisible ? "text" : "password"}
+                  placeholder={config?.llm.apiKeyConfigured && !llmKeyFocused ? "" : "输入 LLM API key..."}
+                  value={config?.llm.apiKeyConfigured && !llmKeyFocused && !llmKey ? "••••••••" : llmKey}
+                  onChange={(e) => setLlmKey(e.target.value)}
+                  onFocus={() => { setLlmKeyFocused(true); if (!llmKey) setLlmKey(""); }}
+                  onBlur={() => { if (!llmKey) setLlmKeyFocused(false); }}
+                  className={cn("pr-10", !config?.llm.apiKeyConfigured && !llmKey && "border-red-500")}
+                />
+                <button
+                  type="button"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded hover:bg-secondary text-muted-foreground transition-colors"
+                  onMouseDown={(e) => { e.preventDefault(); const input = e.currentTarget.previousElementSibling as HTMLInputElement; input?.focus(); setLlmKeyVisible((v) => !v); }}
+                  tabIndex={-1}
+                >
+                  {llmKeyVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
               {config?.llm.apiKeyConfigured && !llmKeyFocused ? (
                 <p className="text-[13px] text-[#34c759] dark:text-[#30d158]">已配置</p>
               ) : !config?.llm.apiKeyConfigured && !llmKey ? (
@@ -201,15 +215,25 @@ export function Settings() {
           </CardHeader>
           <CardContent className="space-y-1.5">
             <Label className={cn(!config?.tavily.apiKeyConfigured && !tavilyKey && "text-red-500")}>API Key</Label>
-            <Input
-              type="password"
-              placeholder={config?.tavily.apiKeyConfigured && !tavilyKeyFocused ? "" : "输入 Tavily API key..."}
-              value={config?.tavily.apiKeyConfigured && !tavilyKeyFocused && !tavilyKey ? "••••••••" : tavilyKey}
-              onChange={(e) => setTavilyKey(e.target.value)}
-              onFocus={() => { setTavilyKeyFocused(true); if (!tavilyKey) setTavilyKey(""); }}
-              onBlur={() => { if (!tavilyKey) setTavilyKeyFocused(false); }}
-              className={cn(!config?.tavily.apiKeyConfigured && !tavilyKey && "border-red-500")}
-            />
+            <div className="relative">
+              <Input
+                type={tavilyKeyVisible ? "text" : "password"}
+                placeholder={config?.tavily.apiKeyConfigured && !tavilyKeyFocused ? "" : "输入 Tavily API key..."}
+                value={config?.tavily.apiKeyConfigured && !tavilyKeyFocused && !tavilyKey ? "••••••••" : tavilyKey}
+                onChange={(e) => setTavilyKey(e.target.value)}
+                onFocus={() => { setTavilyKeyFocused(true); if (!tavilyKey) setTavilyKey(""); }}
+                onBlur={() => { if (!tavilyKey) setTavilyKeyFocused(false); }}
+                className={cn("pr-10", !config?.tavily.apiKeyConfigured && !tavilyKey && "border-red-500")}
+              />
+              <button
+                type="button"
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded hover:bg-secondary text-muted-foreground transition-colors"
+                onMouseDown={(e) => { e.preventDefault(); const input = e.currentTarget.previousElementSibling as HTMLInputElement; input?.focus(); setTavilyKeyVisible((v) => !v); }}
+                tabIndex={-1}
+              >
+                {tavilyKeyVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
             {config?.tavily.apiKeyConfigured && !tavilyKeyFocused ? (
               <p className="text-[13px] text-[#34c759] dark:text-[#30d158]">已配置</p>
             ) : !config?.tavily.apiKeyConfigured && !tavilyKey ? (
@@ -225,17 +249,31 @@ export function Settings() {
             <CardDescription>用于知识库文档的向量嵌入，不填则使用本地 embedding 模型</CardDescription>
           </CardHeader>
           <CardContent className="space-y-1.5">
-            <Input
-              type="password"
-              placeholder={config?.zhipu.apiKeyConfigured && !zhipuKeyFocused ? "" : "输入智谱 API key..."}
-              value={config?.zhipu.apiKeyConfigured && !zhipuKeyFocused && !zhipuKey ? "••••••••" : zhipuKey}
-              onChange={(e) => setZhipuKey(e.target.value)}
-              onFocus={() => { setZhipuKeyFocused(true); if (!zhipuKey) setZhipuKey(""); }}
-              onBlur={() => { if (!zhipuKey) setZhipuKeyFocused(false); }}
-            />
-            {config?.zhipu.apiKeyConfigured && !zhipuKeyFocused && (
+            <Label className={cn(!config?.zhipu.apiKeyConfigured && !zhipuKeyFocused && !zhipuKey && "text-red-500")}>API Key</Label>
+            <div className="relative">
+              <Input
+                type={zhipuKeyVisible ? "text" : "password"}
+                placeholder={config?.zhipu.apiKeyConfigured && !zhipuKeyFocused ? "" : "输入智谱 API key..."}
+                value={config?.zhipu.apiKeyConfigured && !zhipuKeyFocused && !zhipuKey ? "••••••••" : zhipuKey}
+                onChange={(e) => setZhipuKey(e.target.value)}
+                onFocus={() => { setZhipuKeyFocused(true); if (!zhipuKey) setZhipuKey(""); }}
+                onBlur={() => { if (!zhipuKey) setZhipuKeyFocused(false); }}
+                className={cn("pr-10", !config?.zhipu.apiKeyConfigured && !zhipuKeyFocused && !zhipuKey && "border-red-500")}
+              />
+              <button
+                type="button"
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded hover:bg-secondary text-muted-foreground transition-colors"
+                onMouseDown={(e) => { e.preventDefault(); const input = e.currentTarget.previousElementSibling as HTMLInputElement; input?.focus(); setZhipuKeyVisible((v) => !v); }}
+                tabIndex={-1}
+              >
+                {zhipuKeyVisible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+            {config?.zhipu.apiKeyConfigured && !zhipuKeyFocused ? (
               <p className="text-[13px] text-[#34c759] dark:text-[#30d158]">已配置</p>
-            )}
+            ) : !config?.zhipu.apiKeyConfigured && !zhipuKey ? (
+              <p className="text-[13px] text-red-500">未配置</p>
+            ) : null}
           </CardContent>
         </Card>
 
