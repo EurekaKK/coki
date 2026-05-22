@@ -25,7 +25,7 @@ AI 深度研究桌面应用。输入一个问题，Coki 自动搜索网络和你
 |---|---|---|
 | LLM API Key | 调用大模型生成报告 | 你的模型服务商后台（Anthropic / MiMo 等） |
 | Tavily API Key | 网络信息检索 | [tavily.com](https://tavily.com) |
-| 智谱 API Key | 本地文档向量嵌入（可选） | [zhipu.com](https://zhipu.com) |
+| 智谱 API Key | 本地文档向量嵌入（可选） | [bigmodel.cn](https://bigmodel.cn/) |
 
 > 所有 API Key 均保存在本地，不会上传至任何服务器。
 
