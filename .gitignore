@@ -8,3 +8,5 @@ dist-electron/
 .DS_Store
 tavily api key.md
 .claude/
+docs/
+design-mockups/
