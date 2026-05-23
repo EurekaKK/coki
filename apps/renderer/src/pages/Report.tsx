@@ -199,8 +199,8 @@ export function Report() {
       },
       a: ({ href, children, node, ...props }: any) => {
         // Footnote reference — show tooltip and open source URL on click
-        // react-markdown v9 passes data attributes as camelCase (dataFootnoteRef)
-        if (props.dataFootnoteRef) {
+        // remark-gfm passes data attributes as empty string (falsy), so use `in`
+        if ("data-footnote-ref" in props) {
           const refNum = parseInt(getHastText(node), 10);
           const info = footnoteMap.get(refNum);
           if (info) {
@@ -234,7 +234,8 @@ export function Report() {
         }
 
         // Footnote backref — suppress the arrow
-        if (props.dataFootnoteBackref) {
+        // The value is empty string (falsy), so check with `in` instead of truthiness
+        if ("data-footnote-backref" in props) {
           return null;
         }
 
