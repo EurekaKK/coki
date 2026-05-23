@@ -199,7 +199,8 @@ export function Report() {
       },
       a: ({ href, children, node, ...props }: any) => {
         // Footnote reference — show tooltip and open source URL on click
-        if (props["data-footnote-ref"]) {
+        // react-markdown v9 passes data attributes as camelCase (dataFootnoteRef)
+        if (props.dataFootnoteRef) {
           const refNum = parseInt(getHastText(node), 10);
           const info = footnoteMap.get(refNum);
           if (info) {
@@ -233,7 +234,7 @@ export function Report() {
         }
 
         // Footnote backref — suppress the arrow
-        if (props["data-footnote-backref"]) {
+        if (props.dataFootnoteBackref) {
           return null;
         }
 
