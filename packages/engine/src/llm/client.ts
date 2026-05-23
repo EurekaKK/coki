@@ -122,6 +122,12 @@ export class LLMClient {
     });
   }
 
+  /** Update the default model at runtime. */
+  updateModel(model: string): void {
+    this.defaultModel = model;
+    logger.info({ model }, "llm: default model updated");
+  }
+
   /** Update thinking mode at runtime. */
   updateThinking(thinking: boolean): void {
     this.defaultThinking = thinking;

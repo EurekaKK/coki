@@ -227,6 +227,16 @@ export class ResearchEngine {
     this.initDocumentManager({ llmApiKey: this.llmApiKey, tavilyApiKey: this.tavilyApiKey, zhipuApiKey: apiKey });
   }
 
+  /** Update LLM base URL at runtime. */
+  updateBaseUrl(baseUrl: string): void {
+    this.llm.updateApiKey(this.llmApiKey, baseUrl);
+  }
+
+  /** Update default model at runtime. */
+  updateModel(model: string): void {
+    this.llm.updateModel(model);
+  }
+
   /** Update thinking mode at runtime. */
   updateThinking(thinking: boolean): void {
     this.llm.updateThinking(thinking);

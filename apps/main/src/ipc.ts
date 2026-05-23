@@ -185,9 +185,11 @@ export function registerIPCHandlers(
     // Handle non-secret LLM config
     if (patch.llmBaseUrl !== undefined) {
       secretStore.saveConfig("llm.baseUrl", patch.llmBaseUrl as string);
+      engine.updateBaseUrl(patch.llmBaseUrl as string);
     }
     if (patch.llmModel !== undefined) {
       secretStore.saveConfig("llm.model", patch.llmModel as string);
+      engine.updateModel(patch.llmModel as string);
     }
     if (patch.llmThinking !== undefined) {
       secretStore.saveConfig("llm.thinking", String(patch.llmThinking));
