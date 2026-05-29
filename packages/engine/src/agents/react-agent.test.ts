@@ -31,6 +31,12 @@ describe("Agent prompts", () => {
     expect(prompt).toContain("tavily_extract");
   });
 
+  it("document-enabled prompt only advertises https://doc.coki document URLs", () => {
+    const prompt = buildSubagentSystemPrompt({ withEvaluate: false, hasDocuments: true });
+    expect(prompt).toContain("https://doc.coki/");
+    expect(prompt).not.toContain("doc://");
+  });
+
   it("subagent system prompt omits search_documents when hasDocuments is false", () => {
     const prompt = buildSubagentSystemPrompt({ withEvaluate: false, hasDocuments: false });
     expect(prompt).not.toContain("search_documents");

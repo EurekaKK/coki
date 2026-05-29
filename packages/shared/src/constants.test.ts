@@ -6,15 +6,16 @@ describe("Constants", () => {
     expect(DEPTH_PRESETS).toEqual([1, 2, 3]);
   });
 
-  it("PHASES has 7 entries", () => {
-    expect(PHASES).toHaveLength(7);
+  it("PHASES has 8 entries", () => {
+    expect(PHASES).toHaveLength(8);
     expect(PHASES).toContain("init");
+    expect(PHASES).toContain("extract-claims");
     expect(PHASES).toContain("cite");
   });
 
-  it("PHASE_WEIGHTS sums to 98", () => {
+  it("PHASE_WEIGHTS sums to 100", () => {
     const total = Object.values(PHASE_WEIGHTS).reduce((s, w) => s + w, 0);
-    expect(total).toBe(98);
+    expect(total).toBe(100);
   });
 
   it("every phase has a weight", () => {

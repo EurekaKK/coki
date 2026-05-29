@@ -12,10 +12,19 @@ import { createSynthesizeNode } from "./pipeline/nodes/synthesize";
 import { createExtractClaimsNode } from "./pipeline/nodes/extract-claims";
 import { createCiteNode } from "./pipeline/nodes/cite";
 import type { PipelineContext } from "./pipeline/context";
+import type { IntentAnswer, ResearchBrief } from "@coki/shared";
 import { DocumentManager } from "./rag/document-manager";
 import { ZhipuEmbeddingProvider, LocalEmbeddingProvider } from "./rag/embeddings";
 import type { EmbeddingProvider } from "./rag/embeddings";
-import { join } from "node:path";
+import { randomUUID } from "node:crypto";
+import { clarifyResearchIntent } from "./intent/clarifier";
+import { logger } from "./logger";
+import {
+  buildIntentClarificationDoneLog,
+  buildIntentClarificationErrorLog,
+  buildIntentClarificationStartLog,
+  buildResearchStartLog,
+} from "./intent/observability";
 
 export interface RuntimeSecrets {
   llmApiKey: string;
@@ -102,11 +111,32 @@ export class ResearchEngine {
   async *runResearch(
     query: string,
     depth: 1 | 2 | 3,
-    options?: { outputLanguage?: "zh" | "en"; signal?: AbortSignal; runId?: string; collectionIds?: string[] }
+    options?: {
+      outputLanguage?: "zh" | "en";
+      signal?: AbortSignal;
+      runId?: string;
+      collectionIds?: string[];
+      researchBrief?: ResearchBrief;
+      intentRequestId?: string;
+    }
   ): AsyncGenerator<PipelineEvent> {
     const runId = this.db.createRun(query, depth, options?.runId);
     const controller = new AbortController();
     this.activeRuns.set(runId, controller);
+    const outputLanguage = options?.outputLanguage ?? "zh";
+
+    logger.info(
+      buildResearchStartLog({
+        runId,
+        intentRequestId: options?.intentRequestId,
+        query,
+        depth,
+        outputLanguage,
+        collectionIds: options?.collectionIds,
+        researchBrief: options?.researchBrief,
+      }),
+      "research: start",
+    );
 
     const signal = options?.signal
       ? AbortSignal.any([options.signal, controller.signal])
@@ -170,7 +200,7 @@ export class ResearchEngine {
       runId,
       userQuery: query,
       depth,
-      outputLanguage: options?.outputLanguage ?? "zh",
+      outputLanguage,
       plan: null,
       subtasks: [],
       completedSubtasks: new Set(),
@@ -186,6 +216,7 @@ export class ResearchEngine {
       evidenceSpans: [],
       claims: [],
       collectionIds: options?.collectionIds,
+      researchBrief: options?.researchBrief,
     };
 
     try {
@@ -205,6 +236,70 @@ export class ResearchEngine {
       yield { type: "error", phase: "unknown", message };
     } finally {
       this.activeRuns.delete(runId);
+    }
+  }
+
+  async clarifyIntent(options: {
+    originalQuery: string;
+    history?: IntentAnswer[];
+    maxRounds?: number;
+    outputLanguage?: "zh" | "en";
+  }) {
+    const intentRequestId = `intent-${randomUUID()}`;
+    const maxRounds = Math.max(1, options.maxRounds ?? 3);
+    const outputLanguage = options.outputLanguage ?? "zh";
+    const startedAt = Date.now();
+
+    logger.info(
+      buildIntentClarificationStartLog({
+        intentRequestId,
+        originalQuery: options.originalQuery,
+        history: options.history,
+        maxRounds,
+        outputLanguage,
+      }),
+      "intent: clarify start",
+    );
+
+    try {
+      const result = await clarifyResearchIntent(
+        this.llm,
+        {
+          originalQuery: options.originalQuery,
+          history: options.history,
+          maxRounds,
+          outputLanguage,
+        },
+        { traceId: intentRequestId },
+      );
+      const tracedResult = { ...result, intentRequestId };
+      const doneLog = buildIntentClarificationDoneLog({
+          intentRequestId,
+          latencyMs: Date.now() - startedAt,
+          result: tracedResult,
+        });
+      if (tracedResult.fallbackReason) {
+        logger.warn(
+          { ...doneLog, event: "intent.clarify.fallback" },
+          "intent: clarify fallback",
+        );
+      } else {
+        logger.info(doneLog, "intent: clarify done");
+      }
+      return tracedResult;
+    } catch (error) {
+      logger.error(
+        {
+          ...buildIntentClarificationErrorLog({
+            intentRequestId,
+            latencyMs: Date.now() - startedAt,
+            error,
+          }),
+          err: error,
+        },
+        "intent: clarify failed",
+      );
+      throw error;
     }
   }
 

@@ -261,6 +261,19 @@ export class CokiDatabase {
     }
   }
 
+  markInterruptedRuns(error: string): number {
+    this.checkNotClosed();
+    const now = new Date().toISOString();
+    const result = this.db
+      .prepare(
+        `UPDATE runs
+         SET status = 'failed', error = ?, completed_at = ?
+         WHERE status IN ('pending', 'running')`,
+      )
+      .run(error, now);
+    return result.changes;
+  }
+
   updateRunPlan(id: string, plan: string): void {
     this.checkNotClosed();
     this.db

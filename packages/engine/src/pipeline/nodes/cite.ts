@@ -11,6 +11,9 @@ import type { CokiDatabase } from "../../db/database";
 import { addCitations, normalizeUrl, verifyCitations } from "../../citation/citation";
 import { pipelineLogger } from "../../logger";
 
+const DOC_URL_PREFIX = "https://doc.coki/";
+const LEGACY_DOC_URL_PREFIX = "doc://";
+
 // ---------------------------------------------------------------------------
 // URL liveness check
 // ---------------------------------------------------------------------------
@@ -25,6 +28,18 @@ async function checkUrlLiveness(url: string): Promise<"ok" | "failed"> {
   } catch {
     return "failed";
   }
+}
+
+export function documentIdFromSourceUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  const normalized = normalizeUrl(url.trim());
+  if (normalized.startsWith(DOC_URL_PREFIX)) {
+    return normalized.slice(DOC_URL_PREFIX.length) || null;
+  }
+  if (normalized.startsWith(LEGACY_DOC_URL_PREFIX)) {
+    return normalized.slice(LEGACY_DOC_URL_PREFIX.length) || null;
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -51,15 +66,25 @@ export function createCiteNode(db: CokiDatabase) {
     }
 
     const { citedReport, sources } = addCitations(ctx.report, titleByUrl);
+    const sourceDescriptors = sources.map((source) => ({
+      source,
+      documentId: documentIdFromSourceUrl(source.url),
+    }));
 
     // Check URL liveness concurrently for all sources
     const livenessResults = await Promise.all(
-      sources.map((s) => (s.url ? checkUrlLiveness(s.url) : Promise.resolve("failed" as const))),
+      sourceDescriptors.map(({ source, documentId }) =>
+        documentId
+          ? Promise.resolve("ok" as const)
+          : source.url
+            ? checkUrlLiveness(source.url)
+            : Promise.resolve("failed" as const),
+      ),
     );
 
     // Persist sources to database and write report_references
-    for (let i = 0; i < sources.length; i++) {
-      const source = sources[i];
+    for (let i = 0; i < sourceDescriptors.length; i++) {
+      const { source, documentId } = sourceDescriptors[i]!;
       const fetchStatus = livenessResults[i];
 
       const existingSource = [...ctx.sources.values()].find(
@@ -71,8 +96,7 @@ export function createCiteNode(db: CokiDatabase) {
         ? db.getSourceByUrlAndRunId(source.url, ctx.runId)
         : undefined;
 
-      const isDocument = source.url?.startsWith("doc://");
-      const documentId = isDocument ? source.url!.slice(6) : null;
+      const isDocument = documentId !== null;
       const sourceId = existing?.id ?? db.insertSource({
         run_id: ctx.runId,
         source_type: isDocument ? "document" : "web",

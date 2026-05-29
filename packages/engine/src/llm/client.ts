@@ -32,6 +32,7 @@ export interface LLMCallRecord {
   latencyMs: number;
   runId?: string;
   phase?: string;
+  traceId?: string;
 }
 
 export type OnCallCallback = (record: LLMCallRecord) => void;
@@ -55,6 +56,10 @@ export interface GenerateOptions {
   runId?: string;
   /** For structured logging — pipeline phase */
   phase?: string;
+  /** For structured logging before a pipeline run exists */
+  traceId?: string;
+  /** Override global thinking mode for short deterministic calls. */
+  thinking?: boolean;
 }
 
 export interface StreamOptions {
@@ -64,11 +69,37 @@ export interface StreamOptions {
   prompt: string;
   maxTokens?: number;
   abortSignal?: AbortSignal;
-  onChunk?: (chunk: { type: string; textDelta?: string }) => void;
+  onChunk?: (chunk: {
+    type: string;
+    textDelta?: string;
+    thinkingDelta?: string;
+    eventType?: string;
+  }) => void;
   /** For structured logging — pipeline run ID */
   runId?: string;
   /** For structured logging — pipeline phase */
   phase?: string;
+  /** For structured logging before a pipeline run exists */
+  traceId?: string;
+  /** Override global thinking mode for short deterministic calls. */
+  thinking?: boolean;
+}
+
+function createCallLogger(opts: { runId?: string; phase?: string; traceId?: string }) {
+  if (opts.runId && opts.phase) {
+    const base = llmLogger(opts.runId, opts.phase);
+    return opts.traceId ? base.child({ traceId: opts.traceId }) : base;
+  }
+
+  if (opts.traceId && opts.phase) {
+    return logger.child({
+      traceId: opts.traceId,
+      phase: opts.phase,
+      component: "llm",
+    });
+  }
+
+  return null;
 }
 
 export interface GenerateResult {
@@ -82,13 +113,18 @@ export interface GenerateResult {
   stopReason?: string;
 }
 
+function setProviderThinking(params: Anthropic.MessageCreateParams, enabled: boolean): void {
+  (params as unknown as { thinking?: { type: "enabled" } | { type: "disabled" } }).thinking =
+    enabled ? { type: "enabled" } : { type: "disabled" };
+}
+
 // ---------------------------------------------------------------------------
 // LLMClient
 // ---------------------------------------------------------------------------
 
 export class LLMClient {
   private client: Anthropic;
-  private readonly defaultModel: string;
+  private defaultModel: string;
   private readonly defaultMaxTokens: number;
   private defaultThinking: boolean;
   private roleModels: Record<string, string>;
@@ -149,13 +185,12 @@ export class LLMClient {
   async generate(opts: GenerateOptions): Promise<GenerateResult> {
     const role = opts.role ?? "default";
     const model = opts.model ?? this.roleModels[role] ?? this.defaultModel;
+    const thinkingEnabled = opts.thinking ?? this.defaultThinking;
     const startTime = Date.now();
     let inputTokens = 0;
     let outputTokens = 0;
 
-    const log = opts.runId && opts.phase
-      ? llmLogger(opts.runId, opts.phase)
-      : null;
+    const log = createCallLogger(opts);
 
     // Build messages array
     const messages: Anthropic.MessageParam[] = [];
@@ -180,18 +215,16 @@ export class LLMClient {
       hasTools: !!opts.tools?.length,
     }, "llm.generate request");
 
-    log?.info({ role, model, thinking: this.defaultThinking }, "llm.generate start");
+    log?.info({ role, model, thinking: thinkingEnabled }, "llm.generate start");
 
     try {
-      const params: Anthropic.MessageCreateParams & { thinking?: { type: string } } = {
+      const params: Anthropic.MessageCreateParams = {
         model,
         max_tokens: opts.maxTokens ?? this.defaultMaxTokens,
         messages,
       };
 
-      if (this.defaultThinking) {
-        params.thinking = { type: "enabled" };
-      }
+      setProviderThinking(params, thinkingEnabled);
 
       if (opts.system) {
         params.system = opts.system;
@@ -214,8 +247,9 @@ export class LLMClient {
 
       // Extract text, tool calls, and thinking from response
       let text = "";
-      let thinking = "";
+      let thinkingText = "";
       const toolCalls: GenerateResult["toolCalls"] = [];
+      const contentBlockTypes = result.content.map((block) => block.type);
 
       for (const block of result.content) {
         if (block.type === "text") {
@@ -227,11 +261,12 @@ export class LLMClient {
             input: block.input as Record<string, unknown>,
           });
         } else if (block.type === "thinking") {
-          thinking += block.thinking;
+          thinkingText += block.thinking;
         }
       }
 
       log?.debug({
+        contentBlockTypes,
         fullText: text,
         toolCalls: toolCalls?.map((tc) => ({ name: tc.name, input: tc.input })),
         stopReason: result.stop_reason,
@@ -243,11 +278,12 @@ export class LLMClient {
         outputTokens,
         latencyMs: Date.now() - startTime,
         textLength: text.length,
+        contentBlockTypes,
         toolCallCount: toolCalls?.length ?? 0,
         stopReason: result.stop_reason,
       }, "llm.generate end");
 
-      return { text, toolCalls, thinking: thinking || undefined, stopReason: result.stop_reason ?? undefined };
+      return { text, toolCalls, thinking: thinkingText || undefined, stopReason: result.stop_reason ?? undefined };
     } finally {
       const latencyMs = Date.now() - startTime;
       this.emitCall({
@@ -258,6 +294,7 @@ export class LLMClient {
         latencyMs,
         runId: opts.runId,
         phase: opts.phase,
+        traceId: opts.traceId,
       });
     }
   }
@@ -266,13 +303,12 @@ export class LLMClient {
   async stream(opts: StreamOptions): Promise<string> {
     const role = opts.role ?? "default";
     const model = opts.model ?? this.roleModels[role] ?? this.defaultModel;
+    const thinkingEnabled = opts.thinking ?? this.defaultThinking;
     const startTime = Date.now();
     let inputTokens = 0;
     let outputTokens = 0;
 
-    const log = opts.runId && opts.phase
-      ? llmLogger(opts.runId, opts.phase)
-      : null;
+    const log = createCallLogger(opts);
 
     log?.debug({
       role,
@@ -281,19 +317,17 @@ export class LLMClient {
       prompt: opts.prompt,
     }, "llm.stream request");
 
-    log?.info({ role, model }, "llm.stream start");
+    log?.info({ role, model, thinking: thinkingEnabled }, "llm.stream start");
 
     try {
-      const streamParams: Anthropic.MessageCreateParams & { thinking?: { type: string } } = {
+      const streamParams: Anthropic.MessageCreateParams = {
         model,
         max_tokens: opts.maxTokens ?? this.defaultMaxTokens,
         system: opts.system,
         messages: [{ role: "user", content: opts.prompt }],
       };
 
-      if (this.defaultThinking) {
-        streamParams.thinking = { type: "enabled" };
-      }
+      setProviderThinking(streamParams, thinkingEnabled);
 
       const stream = this.client.messages.stream(
         streamParams,
@@ -301,6 +335,18 @@ export class LLMClient {
       );
 
       let text = "";
+
+      stream.on("connect", () => {
+        opts.onChunk?.({ type: "connect" });
+      });
+
+      stream.on("streamEvent", (event) => {
+        opts.onChunk?.({ type: "stream-event", eventType: event.type });
+      });
+
+      stream.on("thinking", (thinkingDelta) => {
+        opts.onChunk?.({ type: "thinking-delta", thinkingDelta });
+      });
 
       // Drive the onChunk callback by iterating over text events
       stream.on("text", (textDelta) => {
@@ -338,6 +384,7 @@ export class LLMClient {
         latencyMs,
         runId: opts.runId,
         phase: opts.phase,
+        traceId: opts.traceId,
       });
     }
   }

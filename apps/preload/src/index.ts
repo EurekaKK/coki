@@ -2,8 +2,22 @@ import electron from "electron";
 const { contextBridge, ipcRenderer } = electron;
 
 const api = {
+  intent: {
+    clarify: (payload: {
+      originalQuery: string;
+      history?: Array<{ questionId: string; question: string; answer: string }>;
+      maxRounds?: number;
+      outputLanguage?: "zh" | "en";
+    }) => ipcRenderer.invoke("intent:clarify", payload),
+  },
   research: {
-    start: (query: string, options?: { depth?: number; outputLanguage?: string; collectionIds?: string[] }) =>
+    start: (query: string, options?: {
+      depth?: number;
+      outputLanguage?: string;
+      collectionIds?: string[];
+      researchBrief?: unknown;
+      intentRequestId?: string;
+    }) =>
       ipcRenderer.invoke("research:start", query, options),
     cancel: (runId: string) =>
       ipcRenderer.invoke("research:cancel", runId),

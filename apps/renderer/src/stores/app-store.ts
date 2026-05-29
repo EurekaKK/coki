@@ -32,7 +32,7 @@ interface AppState {
 export const useAppStore = create<AppState>((set, get) => ({
   runs: {},
 
-  getRun: (runId) => get().runs[runId] ?? { ...defaultRunState },
+  getRun: (runId) => get().runs[runId] ?? defaultRunState,
 
   initRun: (runId) =>
     set((state) => ({

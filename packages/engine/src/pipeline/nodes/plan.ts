@@ -13,6 +13,7 @@ import type { PipelineContext, ResearchPlan } from "../context";
 import { PLANNER_PROMPT, PLANNER_SYSTEM_PROMPT } from "../../agents/prompts";
 import { parseJsonFromText } from "../../utils/parse-json";
 import { pipelineLogger } from "../../logger";
+import { formatResearchBriefForPrompt } from "../../intent/clarifier";
 
 function normalizePlan(raw: unknown): ResearchPlan {
   const r = (raw ?? {}) as Record<string, unknown>;
@@ -86,10 +87,13 @@ export function createPlanNode(
     }
 
     const language = ctx.outputLanguage === "zh" ? "Chinese" : "English";
+    const briefBlock = ctx.researchBrief
+      ? `\nResearch brief confirmed by the user:\n${formatResearchBriefForPrompt(ctx.researchBrief)}\n`
+      : "";
     const prompt = PLANNER_PROMPT
-      .replace("{query}", ctx.userQuery)
+      .replace("{query}", ctx.researchBrief?.refinedQuestion ?? ctx.userQuery)
       .replace("{language}", language)
-      .replace("{search_context}", searchContextBlock);
+      .replace("{search_context}", `${briefBlock}${searchContextBlock}`);
 
     log.debug({ prompt }, "plan: generated prompt");
 

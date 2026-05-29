@@ -9,7 +9,7 @@ describe("ConfigManager", () => {
     expect(config.llm.model).toBe("");
     expect(config.tavily.apiKey).toBeNull();
     expect(config.research.depth).toBe(2);
-    expect(config.research.qualityThreshold).toBe(0.7);
+    expect(config.research.qualityThreshold).toBe(0.8);
   });
 
   it("merges overrides with defaults", () => {

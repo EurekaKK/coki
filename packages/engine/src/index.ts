@@ -45,6 +45,9 @@ export type {
 export { ResearchEngine } from "./engine";
 export type { RuntimeSecrets } from "./engine";
 
+export { clarifyResearchIntent, formatResearchBriefForPrompt } from "./intent";
+export type { ClarifyResearchIntentRequest, ClarifyResearchIntentTelemetry } from "./intent";
+
 export { addCitations, verifyCitations } from "./citation/citation";
 export type { CitedSource, CitationResult, VerificationResult } from "./citation/citation";
 
@@ -67,4 +70,5 @@ export type {
   VectraStoreConfig,
   CreateCollectionParams,
   ChunkSearchResult,
+  ImportProgressInfo,
 } from "./rag";

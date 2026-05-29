@@ -12,8 +12,8 @@ describe("addCitations", () => {
     expect(result.citedReport).toContain("https://example.com");
     expect(result.sources).toHaveLength(2);
     // Verify exact reference format
-    expect(result.citedReport).toMatch(/\[\^1\]: https:\/\/example\.com/);
-    expect(result.citedReport).toMatch(/\[\^2\]: https:\/\/report\.com/);
+    expect(result.citedReport).toMatch(/\[\^1\]: <https:\/\/example\.com>/);
+    expect(result.citedReport).toMatch(/\[\^2\]: <https:\/\/report\.com>/);
   });
 
   it("deduplicates same URL", () => {

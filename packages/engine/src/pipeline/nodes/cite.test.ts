@@ -78,4 +78,17 @@ describe("Cite Node", () => {
     const sources = db.getSourcesByRun(runId);
     expect(sources.length).toBeGreaterThanOrEqual(1);
   });
+
+  it("persists https://doc.coki sources as document sources", async () => {
+    const report = "本地文档提供了证据。[src: https://doc.coki/doc-123]";
+    const node = createCiteNode(db);
+    await node(makeCtx(report, runId));
+
+    const sources = db.getSourcesByRun(runId);
+    expect(sources).toHaveLength(1);
+    expect(sources[0]!.source_type).toBe("document");
+    expect(sources[0]!.document_id).toBe("doc-123");
+    expect(sources[0]!.url).toBeNull();
+    expect(sources[0]!.fetch_status).toBe("ok");
+  });
 });

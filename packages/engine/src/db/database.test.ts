@@ -64,6 +64,23 @@ describe("CokiDatabase", () => {
     expect(run!.completed_at).toBeTruthy();
   });
 
+  it("marks interrupted non-terminal runs as failed", () => {
+    const pendingId = db.createRun("pending query", 1);
+    const runningId = db.createRun("running query", 2);
+    const completedId = db.createRun("completed query", 3);
+    db.updateRunStatus(runningId, "running");
+    db.updateRunStatus(completedId, "completed", undefined, "# Report");
+
+    const changed = db.markInterruptedRuns("App restarted before this task finished.");
+
+    expect(changed).toBe(2);
+    expect(db.getRun(pendingId)!.status).toBe("failed");
+    expect(db.getRun(pendingId)!.error).toBe("App restarted before this task finished.");
+    expect(db.getRun(pendingId)!.completed_at).toBeTruthy();
+    expect(db.getRun(runningId)!.status).toBe("failed");
+    expect(db.getRun(completedId)!.status).toBe("completed");
+  });
+
   it("lists runs in reverse chronological order", () => {
     const id1 = db.createRun("first query", 1);
     const id2 = db.createRun("second query", 2);
@@ -230,6 +247,9 @@ describe("CokiDatabase", () => {
       subtask_id: "st-2",
       quote: "Machine learning requires data",
       url: "https://ml.com",
+      page_title: null,
+      start_offset: null,
+      end_offset: null,
     });
 
     const spans = db.getEvidenceSpansByRun(runId);
@@ -272,15 +292,20 @@ describe("CokiDatabase", () => {
     db.insertEvidenceSpan({
       id: "span-1",
       run_id: runId,
+      source_id: null,
       subtask_id: "st-1",
       quote: "Qubits can be in superposition",
       url: "https://a.com",
+      page_title: null,
+      start_offset: null,
+      end_offset: null,
     });
 
     db.insertClaim({
       id: "claim-1",
       run_id: runId,
       claim_text: "Qubits can exist in superposition",
+      section_heading: null,
       claim_index: 0,
     });
 
@@ -304,15 +329,20 @@ describe("CokiDatabase", () => {
     db.insertEvidenceSpan({
       id: "span-1",
       run_id: runId,
+      source_id: null,
       subtask_id: "st-1",
       quote: "test evidence",
       url: "https://a.com",
+      page_title: null,
+      start_offset: null,
+      end_offset: null,
     });
 
     db.insertClaim({
       id: "claim-1",
       run_id: runId,
       claim_text: "test claim",
+      section_heading: null,
       claim_index: 0,
     });
 

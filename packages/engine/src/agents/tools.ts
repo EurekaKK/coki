@@ -15,14 +15,14 @@ export const WEB_SEARCH_TOOL: ToolDef = {
 
 export const WEB_EXTRACT_TOOL: ToolDef = {
   name: "tavily_extract",
-  description: "Extract full content from specific URLs found in previous search results. Works for both web URLs (http/https) and document sources (doc://).",
+  description: "Extract full content from web URLs (http/https) found in previous search results. Document sources use extract_document instead.",
   input_schema: {
     type: "object",
     properties: {
       urls: {
         type: "array",
         items: { type: "string" },
-        description: "URLs to extract content from (including doc:// sources)",
+        description: "Web URLs to extract content from",
       },
     },
     required: ["urls"],

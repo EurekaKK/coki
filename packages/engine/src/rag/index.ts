@@ -7,4 +7,4 @@ export type { EmbeddingProvider, ZhipuEmbeddingConfig, LocalEmbeddingConfig } fr
 export { VectraStore } from "./vectra-store";
 export type { VectorSearchResult, VectraStoreConfig } from "./vectra-store";
 export { DocumentManager } from "./document-manager";
-export type { CreateCollectionParams, ChunkSearchResult } from "./document-manager";
+export type { CreateCollectionParams, ChunkSearchResult, ImportProgressInfo } from "./document-manager";

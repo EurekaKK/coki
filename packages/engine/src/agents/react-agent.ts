@@ -142,7 +142,7 @@ export async function runSubagent(
     },
     {
       name: "tavily_extract",
-      description: "Extract full content from web URLs (http/https) found in previous search results. Does NOT handle doc:// URLs — use extract_document for those.",
+      description: "Extract full content from web URLs (http/https) found in previous search results. Does NOT handle https://doc.coki/ document URLs — use extract_document for those.",
       input_schema: {
         type: "object" as const,
         properties: {
@@ -193,13 +193,13 @@ export async function runSubagent(
       toolDefs.push(createDocumentSearchTool(names));
       toolDefs.push({
         name: "extract_document",
-        description: "Extract the full text of a specific document source (doc://<id>). Call this AFTER evaluate_sources when a document is flagged for full_text extraction.",
+        description: "Extract the full text of a specific document source (https://doc.coki/<id>). Call this AFTER evaluate_sources when a document is flagged for full_text extraction.",
         input_schema: {
           type: "object" as const,
           properties: {
             url: {
               type: "string",
-              description: "The doc:// URL to extract (e.g. doc://abc123)",
+              description: "The https://doc.coki/ URL to extract (e.g. https://doc.coki/abc123)",
             },
           },
           required: ["url"],

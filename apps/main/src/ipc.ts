@@ -1,21 +1,28 @@
 import electron from "electron";
-const { ipcMain, BrowserWindow, dialog, shell } = electron;
+import type { BrowserWindow as BrowserWindowType } from "electron";
+const { ipcMain, dialog, shell } = electron;
 import { readFileSync, existsSync, writeFileSync, copyFileSync, mkdirSync } from "node:fs";
 import { join, extname } from "node:path";
-import type { ResearchEngine, CokiDatabase } from "@coki/engine";
+import type { ResearchEngine, CokiDatabase, ConfigManager, ImportProgressInfo } from "@coki/engine";
 import type { SecretStore } from "./secret-store";
-import type { ConfigManager } from "@coki/engine";
-import type { ImportProgressInfo } from "@coki/engine/src/rag/document-manager";
+import type { IntentAnswer, ResearchBrief } from "@coki/shared";
+import { parseTimelineLogs } from "./timeline";
 
 export function registerIPCHandlers(
   engine: ResearchEngine,
   db: CokiDatabase,
   config: ConfigManager,
   secretStore: SecretStore,
-  getMainWindow: () => BrowserWindow | null,
+  getMainWindow: () => BrowserWindowType | null,
 ): void {
   // Research
-  ipcMain.handle("research:start", async (_event, query: string, options?: { depth?: number; outputLanguage?: string; collectionIds?: string[] }) => {
+  ipcMain.handle("research:start", async (_event, query: string, options?: {
+    depth?: number;
+    outputLanguage?: string;
+    collectionIds?: string[];
+    researchBrief?: ResearchBrief;
+    intentRequestId?: string;
+  }) => {
     const runId = crypto.randomUUID();
     const mainWindow = getMainWindow();
 
@@ -24,6 +31,8 @@ export function registerIPCHandlers(
       outputLanguage: (options?.outputLanguage ?? "zh") as "zh" | "en",
       runId,
       collectionIds: options?.collectionIds,
+      researchBrief: options?.researchBrief,
+      intentRequestId: options?.intentRequestId,
     });
 
     (async () => {
@@ -33,6 +42,20 @@ export function registerIPCHandlers(
     })();
 
     return runId;
+  });
+
+  ipcMain.handle("intent:clarify", async (_event, payload: {
+    originalQuery: string;
+    history?: IntentAnswer[];
+    maxRounds?: number;
+    outputLanguage?: "zh" | "en";
+  }) => {
+    return engine.clarifyIntent({
+      originalQuery: payload.originalQuery,
+      history: payload.history,
+      maxRounds: payload.maxRounds,
+      outputLanguage: payload.outputLanguage,
+    });
   });
 
   ipcMain.handle("research:cancel", async (_event, runId: string) => {
@@ -76,46 +99,7 @@ export function registerIPCHandlers(
     if (!existsSync(logPath)) return [];
 
     const content = readFileSync(logPath, "utf-8");
-    const logs: Array<{
-      id: number;
-      run_id: string;
-      phase: string | null;
-      event_type: string | null;
-      message: string | null;
-      details: string | null;
-      level: string;
-      created_at: string;
-    }> = [];
-    let id = 0;
-
-    for (const line of content.split("\n")) {
-      if (!line.trim()) continue;
-      try {
-        const entry = JSON.parse(line);
-        if (entry.runId !== runId) continue;
-
-        const levelMap: Record<number, string> = { 10: "trace", 20: "debug", 30: "info", 40: "warn", 50: "error", 60: "fatal" };
-        const level = levelMap[entry.level] ?? "info";
-
-        // Build details from extra fields (exclude standard ones)
-        const { time, level: _l, pid, hostname, runId: _r, msg, component, phase, ...rest } = entry;
-        const details = Object.keys(rest).length > 0 ? JSON.stringify(rest) : null;
-
-        logs.push({
-          id: id++,
-          run_id: runId,
-          phase: phase ?? component ?? null,
-          event_type: component ?? null,
-          message: msg ?? null,
-          details,
-          level,
-          created_at: entry.time ?? "",
-        });
-      } catch {
-        // skip unparseable lines
-      }
-    }
-    return logs;
+    return parseTimelineLogs(content, runId);
   });
 
   ipcMain.handle("research:exportMarkdown", async (_event, filename: string, content: string) => {
@@ -235,27 +219,32 @@ export function registerIPCHandlers(
 
   // Documents
   ipcMain.handle("documents:getCollections", async () => {
-    if (!engine.getDocumentManager()) return [];
-    return engine.getDocumentManager().listCollections();
+    const documentManager = engine.getDocumentManager();
+    if (!documentManager) return [];
+    return documentManager.listCollections();
   });
 
   ipcMain.handle("documents:createCollection", async (_event, name: string, description?: string) => {
-    if (!engine.getDocumentManager()) throw new Error("Document manager not initialized");
-    return engine.getDocumentManager().createCollection({ name, description });
+    const documentManager = engine.getDocumentManager();
+    if (!documentManager) throw new Error("Document manager not initialized");
+    return documentManager.createCollection({ name, description });
   });
 
   ipcMain.handle("documents:deleteCollection", async (_event, id: string) => {
-    if (!engine.getDocumentManager()) throw new Error("Document manager not initialized");
-    await engine.getDocumentManager().deleteCollection(id);
+    const documentManager = engine.getDocumentManager();
+    if (!documentManager) throw new Error("Document manager not initialized");
+    await documentManager.deleteCollection(id);
   });
 
   ipcMain.handle("documents:getDocuments", async (_event, collectionId: string) => {
-    if (!engine.getDocumentManager()) return [];
-    return engine.getDocumentManager().listDocuments(collectionId);
+    const documentManager = engine.getDocumentManager();
+    if (!documentManager) return [];
+    return documentManager.listDocuments(collectionId);
   });
 
   ipcMain.handle("documents:importFiles", async (_event, collectionId: string) => {
-    if (!engine.getDocumentManager()) throw new Error("Document manager not initialized");
+    const documentManager = engine.getDocumentManager();
+    if (!documentManager) throw new Error("Document manager not initialized");
     const mainWindow = getMainWindow();
     if (!mainWindow) throw new Error("No main window");
 
@@ -272,7 +261,7 @@ export function registerIPCHandlers(
     const docsDir = join(electron.app.getPath("userData"), "documents", collectionId);
     mkdirSync(docsDir, { recursive: true });
 
-    const sendProgress = (data: { current: number; total: number; filename?: string; status: string; error?: string }) => {
+    const sendProgress = (data: { current: number; total: number; filename?: string; status: string; error?: string; detail?: ImportProgressInfo }) => {
       mainWindow?.webContents.send("documents:importProgress", data);
     };
 
@@ -293,7 +282,7 @@ export function registerIPCHandlers(
       copyFileSync(filePath, destPath);
 
       try {
-        const id = await engine.getDocumentManager().importDocument(
+        const id = await documentManager.importDocument(
           collectionId,
           filename,
           destPath,
@@ -316,18 +305,21 @@ export function registerIPCHandlers(
   });
 
   ipcMain.handle("documents:deleteDocument", async (_event, documentId: string) => {
-    if (!engine.getDocumentManager()) throw new Error("Document manager not initialized");
-    await engine.getDocumentManager().deleteDocument(documentId);
+    const documentManager = engine.getDocumentManager();
+    if (!documentManager) throw new Error("Document manager not initialized");
+    await documentManager.deleteDocument(documentId);
   });
 
   ipcMain.handle("documents:search", async (_event, collectionId: string, query: string) => {
-    if (!engine.getDocumentManager()) throw new Error("Document manager not initialized");
-    return engine.getDocumentManager().search(collectionId, query);
+    const documentManager = engine.getDocumentManager();
+    if (!documentManager) throw new Error("Document manager not initialized");
+    return documentManager.search(collectionId, query);
   });
 
   ipcMain.handle("documents:openDocument", async (_event, documentId: string) => {
-    if (!engine.getDocumentManager()) throw new Error("Document manager not initialized");
-    const doc = engine.getDocumentManager().getDocument(documentId);
+    const documentManager = engine.getDocumentManager();
+    if (!documentManager) throw new Error("Document manager not initialized");
+    const doc = documentManager.getDocument(documentId);
     if (!doc) throw new Error("Document not found");
     if (!doc.file_path) throw new Error("Document has no file path");
     const result = await shell.openPath(doc.file_path);

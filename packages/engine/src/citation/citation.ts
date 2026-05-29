@@ -16,7 +16,8 @@ export interface CitationResult {
 }
 
 // Match [src: url] — closing ] is optional to handle malformed markers like [src: url)
-// Supports http(s) URLs and doc:// synthetic URLs for document sources
+// Supports http(s) URLs and legacy doc:// synthetic URLs for document sources.
+// Active document citations use https://doc.coki/<documentId>.
 const DOC_URL_PREFIX = "https://doc.coki/";
 const SRC_PATTERN = /\[src:\s*((?:https?|doc:)[^\]\)]*)\]?[)]?/g;
 // Match empty/orphaned [src: ] markers (no URL)

@@ -134,7 +134,7 @@ export function buildSubagentSystemPrompt(opts: { withEvaluate: boolean; hasDocu
 3. Identify the most promising sources from ALL search results (documents and web)
 4. Extract full content for the top 2–4 sources:
    - Web URLs (http/https) → use tavily_extract
-   - Document URLs (doc://) → use extract_document
+   - Document URLs (https://doc.coki/...) → use extract_document
 5. If gaps remain, run ONE more targeted search round
 6. Stop searching (you have a strict budget). Write your report`
       : `1. Search broadly first — 1–2 queries that cover different angles of the subtask
@@ -152,14 +152,19 @@ ${toolsList}
 Workflow:
 ${workflow}
 
-Rules:` + SUBAGENT_RULES_BLOCK;
+Rules:` + buildSubagentRulesBlock({ hasDocuments: opts.hasDocuments === true });
 }
 
-const SUBAGENT_RULES_BLOCK = `
+function buildSubagentRulesBlock(opts: { hasDocuments: boolean }): string {
+  const citationRules = opts.hasDocuments
+    ? `- Citation examples: [src: https://example.com/article] for web pages; [src: https://doc.coki/abc123] for documents from search_documents. Use the EXACT URL — do not rewrite, abbreviate, or guess
+- Document sources (https://doc.coki/<id>) are PRIMARY sources. You MUST cite them with [src: https://doc.coki/<id>] exactly as shown in the search_documents results. Skipping document citations is a critical error`
+    : `- Citation example: [src: https://example.com/article]. Use the EXACT URL — do not rewrite, abbreviate, or guess`;
+
+  return `
 - Use AT MOST 2–3 search rounds total. Don't loop endlessly
 - After EVERY factual claim, include [src: <url>] immediately. Do not batch citations at paragraph end. A claim without [src:] will be treated as unverified
-- Citation examples: [src: https://example.com/article] for web pages; [src: https://doc.coki/abc123] for documents from search_documents. Use the EXACT URL — do not rewrite, abbreviate, or guess
-- Document sources (https://doc.coki/<id>) are PRIMARY sources. You MUST cite them with [src: https://doc.coki/<id>] exactly as shown in the search_documents results. Skipping document citations is a critical error
+${citationRules}
 - Prefer primary sources (official docs, academic papers, original data, user-uploaded documents) over secondary aggregators
 - Write analytical prose with full paragraphs, not bullet lists. Discuss mechanisms, causation, context. Use quantitative evidence whenever possible
 - If sources conflict, analyze the disagreement — do not silently pick one side
@@ -184,6 +189,7 @@ Rules for headings:
 - ## are the three main sections shown above
 - ### are sub-headings INSIDE ## Analysis. You MUST use ### to break the analysis into focused sub-topics. Do NOT use bold text (**) as a substitute for headings
 - Every logical subdivision within ## Analysis must be a ### heading`;
+}
 
 export const SUBAGENT_USER_TEMPLATE = `Research subtask: {instruction}
 

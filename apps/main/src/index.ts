@@ -1,4 +1,5 @@
 import electron from "electron";
+import type { BrowserWindow as BrowserWindowType } from "electron";
 const { app, BrowserWindow } = electron;
 import { join } from "node:path";
 import { CokiDatabase, ConfigManager, ResearchEngine } from "@coki/engine";
@@ -6,7 +7,7 @@ import { registerIPCHandlers } from "./ipc";
 import { setupSecurity } from "./security";
 import { SecretStore } from "./secret-store";
 
-let mainWindow: BrowserWindow | null = null;
+let mainWindow: BrowserWindowType | null = null;
 
 function createMainWindow(): void {
   mainWindow = new BrowserWindow({
@@ -36,6 +37,7 @@ function createMainWindow(): void {
 app.whenReady().then(async () => {
   const dbPath = join(app.getPath("userData"), "data.db");
   const db = new CokiDatabase(dbPath);
+  db.markInterruptedRuns("应用重启或进程中断，任务未能继续运行。请重新发起研究。");
   const secretStore = new SecretStore(db);
   await secretStore.backfillPlainValues();
   const secrets = await secretStore.load();

@@ -2,6 +2,8 @@
  * Pipeline context types for the Coki research pipeline.
  */
 
+import type { ResearchBrief } from "@coki/shared";
+
 export interface Subtask {
   id: string;
   instruction: string;
@@ -87,4 +89,5 @@ export interface PipelineContext {
   done?: boolean;
   error?: string;
   collectionIds?: string[];
+  researchBrief?: ResearchBrief;
 }
